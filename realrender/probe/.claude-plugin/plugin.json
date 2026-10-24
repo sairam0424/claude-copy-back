@@ -1,0 +1,6 @@
+{
+  "name": "rows-probe",
+  "version": "0.0.1",
+  "description": "Rig-only probe: /probe shows counts about the session rows the engine hands a mod (never their text).",
+  "author": { "name": "Sairam Ugge" }
+}
