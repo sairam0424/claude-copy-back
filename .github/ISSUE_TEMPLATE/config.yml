@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/sairam0424/claude-copy-back/security/policy
+    about: Read SECURITY.md first. Do not open a public issue for a security problem, and never paste your clipboard or message text into any report.

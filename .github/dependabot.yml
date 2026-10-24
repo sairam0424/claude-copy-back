@@ -1,0 +1,21 @@
+# Keeps the SHA-pinned actions in .github/workflows current. The repo has no
+# runtime or development dependencies, so GitHub Actions is the only ecosystem.
+# The Claude Code versions in ci.yml's engine matrix are exact pins that move on
+# purpose; Dependabot does not see an npx argument.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Let a fresh release age a week before it is proposed: a hijacked release
+    # is usually found and pulled within days.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns:
+          - "*"

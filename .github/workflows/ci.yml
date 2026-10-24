@@ -1,0 +1,185 @@
+# CI for copy-back.
+#
+# Hardening (GitHub's secure-use guidance): read-only token, no secrets, no
+# pull_request_target / workflow_run / issue triggers, every action pinned to a
+# full commit SHA with its version in a trailing comment (Dependabot keeps both
+# current), persist-credentials off, a timeout on every job, and no ${{ }}
+# expression inside a run: block (values reach the shell through env: only).
+#
+# What runs where, and why:
+#   tests         hermetic Node suites on Linux and macOS, Node 22.19.0 (the
+#                 floor in package.json) and 24.x, plus Node 26.x on Linux
+#                 only (the matrix include below). `engines` is open-ended,
+#                 Node 26 is what the maintainer develops on and ran the live
+#                 pass with, and it becomes LTS on 2026-10-28, so it has to be
+#                 covered; Linux only keeps the macOS minutes down. Serial on
+#                 purpose: tests/budget.test.ts and six more files assert
+#                 wall-clock bounds and fail when several suites share a
+#                 loaded machine; with --test-concurrency=1 they pass. The
+#                 "tests/*.test.ts" glob is quoted because
+#                 `node --test tests/` (a directory) does not work on Node 22.
+#                 No test here starts tmux, sandbox-exec, the real renderer,
+#                 the engine or the clipboard.
+#   shellcheck    scripts/*.sh (the runner image ships shellcheck).
+#   source-guard  scripts/check-sources.mjs, the token scan of hooks/ and
+#                 src/core/. It needs only Node.
+#   engine        claude plugin validate --strict, the footprint gate and the
+#                 kit tests on a pinned Claude Code (the engine floor and the
+#                 version the mod was developed on). No API key, no login, no
+#                 model call: none of these three talks to a model.
+#
+# Not run in CI:
+#   scripts/typecheck.sh  It checks against claude-code.d.ts, which the engine
+#                 writes only when a Claude Code session loads the
+#                 plugin-authoring skill. A runner has no such file, so the
+#                 script would print "nothing to check" and exit 0 (or exit 1
+#                 with CB_TYPECHECK_REQUIRED=1): neither is a real check. It
+#                 stays a local gate (npm run typecheck).
+#   The sealed rig and live pass (tmux, sandbox-exec, a real Claude Code
+#                 session): they run on the author's Mac only.
+#
+# Cost note: GitHub bills macOS minutes at ten times Linux on a private repo
+# (2,000 included minutes a month on the Free plan); standard runners are free
+# on a public repo.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tests:
+    name: tests (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["22.19.0", "24.x"]
+        include:
+          # One extra leg, not a new column: Node 26 on Linux only.
+          - os: ubuntu-latest
+            node: "26.x"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: Show versions
+        run: node --version
+
+      - name: Unit tests
+        run: node --test --test-concurrency=1 "tests/*.test.ts"
+
+      - name: Replay self-test
+        run: node scripts/replay.mjs --selftest
+
+      # The rig's unit tests use fakes for tmux and sandbox-exec. One file
+      # (stub.test.mjs) starts a loopback Python stub from the Homebrew path
+      # and samples sockets with the macOS lsof, so they run on macOS only.
+      - name: Rig unit tests (macOS only)
+        if: runner.os == 'macOS'
+        run: node --test --test-concurrency=1 "realrender/tests/*.test.mjs"
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Show version
+        run: shellcheck --version
+
+      - name: shellcheck scripts
+        run: shellcheck scripts/*.sh
+
+  source-guard:
+    name: source guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.19.0"
+          package-manager-cache: false
+
+      - name: Source guard
+        run: node scripts/check-sources.mjs
+
+  engine:
+    name: engine gates (claude ${{ matrix.claude }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # 2.1.299 is the engine floor (AGENTS.md); 2.1.309 is the version the
+        # mod was developed and calibrated on. Both are exact pins: change them
+        # on purpose, Dependabot does not touch an npx argument.
+        claude: ["2.1.299", "2.1.309"]
+    env:
+      CLAUDE_VERSION: ${{ matrix.claude }}
+      DISABLE_AUTOUPDATER: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.x"
+          package-manager-cache: false
+
+      # npx downloads the pinned engine on first use and reuses it after that.
+      - name: Install the pinned engine and check its version
+        run: |
+          version="$(npx --yes "@anthropic-ai/claude-code@${CLAUDE_VERSION}" --version)"
+          echo "${version}"
+          if [ "${version}" != "${CLAUDE_VERSION} (Claude Code)" ]; then
+            echo "unexpected engine version: ${version}" >&2
+            exit 1
+          fi
+
+      - name: Validate the plugin (strict)
+        run: npx --yes "@anthropic-ai/claude-code@${CLAUDE_VERSION}" plugin validate . --strict
+
+      - name: Footprint gate
+        run: CB_CLAUDE="npx --yes @anthropic-ai/claude-code@${CLAUDE_VERSION}" bash scripts/check-footprint.sh
+
+      - name: Kit tests
+        run: CB_CLAUDE="npx --yes @anthropic-ai/claude-code@${CLAUDE_VERSION}" bash scripts/kit-test.sh

@@ -1,0 +1,116 @@
+name: Bug report
+description: "/cc refused when it should have copied, copied the wrong text, or failed"
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste the text you copied, your clipboard, or any part of a Claude reply into this issue.** That includes screenshots, logs and "just a short example". Describe the shape of the text instead (a wrapped paragraph, a list across a line break, a code block), and report only what `/cc` showed you. The toast it prints holds counts and fixed words only, so it is safe to quote.
+
+        copy-back is experimental and macOS only. Reports from other systems are welcome but may not be fixable.
+
+        Found a security problem? Do not file it here: see the security policy linked on the issue chooser.
+
+  - type: checkboxes
+    id: no-private-text
+    attributes:
+      label: Privacy check
+      options:
+        - label: This report contains no copied text, clipboard contents, message text, transcript lines, file paths from my machine or secrets.
+          required: true
+
+  - type: input
+    id: copy-back-version
+    attributes:
+      label: copy-back version
+      description: From `claude plugin list`, or the `version` in the plugin's `.claude-plugin/plugin.json`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: claude-code-version
+    attributes:
+      label: Claude Code version
+      description: Output of `claude --version`.
+      placeholder: "2.1.309"
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: Output of `sw_vers -productVersion`.
+      placeholder: "15.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: terminal
+    attributes:
+      label: Terminal app
+      description: The app you copied from and ran Claude Code in.
+      options:
+        - Terminal.app
+        - iTerm2
+        - Warp
+        - Ghostty
+        - WezTerm
+        - Alacritty
+        - kitty
+        - VS Code integrated terminal
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: terminal-setup
+    attributes:
+      label: Terminal setup
+      description: The window width in columns, and anything between the terminal and Claude Code (tmux, screen, an editor terminal, a remote session).
+      placeholder: "100 columns, inside tmux"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: copied-kind
+    attributes:
+      label: What kind of text did you copy?
+      options:
+        - A wrapped paragraph
+        - A bulleted or numbered list
+        - A code block
+        - A quote
+        - A table
+        - Several of these
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: toast
+    attributes:
+      label: The toast /cc showed
+      description: Type it exactly, or write "no toast". It holds counts and fixed words only.
+      placeholder: "copy-back: matches more than one place, nothing changed"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: What you expected, and what happened
+      description: In your own words. Do not quote the text.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Describe the kind of reply and the kind of copy, not their content.
+      placeholder: "Claude printed a numbered list with one long wrapped item. I copied from the middle of that item to the end of the next one, then typed /cc."
+    validations:
+      required: false
