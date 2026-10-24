@@ -1,0 +1,14 @@
+{
+  "name": "claude-copy-back",
+  "owner": { "name": "Sairam Ugge" },
+  "metadata": {
+    "description": "copy-back: after copying text from the terminal, /cc puts Claude's own text for it back on the clipboard. Experimental; macOS only."
+  },
+  "plugins": [
+    {
+      "name": "copy-back",
+      "source": "./",
+      "description": "The /cc command: puts Claude's own text for what you copied back on the clipboard, without the margin and the hard line breaks."
+    }
+  ]
+}

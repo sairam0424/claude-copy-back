@@ -1,0 +1,42 @@
+# Written by the engine each time the plugin-authoring skill loads
+.claude-plugin/types/
+/tsconfig.json
+
+# Dependencies, build output, caches (none today; keeps an accidental install out)
+node_modules/
+*.tsbuildinfo
+coverage/
+__pycache__/
+*.pyc
+*.log
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local agent settings, scratch and isolated test homes
+.claude/settings.local.json
+scratch-pad/
+.archify/
+_home/
+
+# Real-copy test data: the captures folder must live outside the repository
+copy-back-captures/
+*.verdict
+
+# Sealed-rig and live-pass output: rendered screens, raw streams, the clipboard-hash log, socket samples
+*-evidence/
+evidence/
+clip-log.jsonl
+raw-stream.bin
+lsof-samples.jsonl
+holdout-discards.json
+
+# One-off analysis scripts over unpublished evidence; not part of the repository
+/realrender/analysis/
