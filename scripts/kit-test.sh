@@ -6,14 +6,14 @@
 # Usage: bash scripts/kit-test.sh [plugin-dir]
 #        CB_CLAUDE="<engine command>" bash scripts/kit-test.sh   (another engine)
 #
-# Why not `claude plugin test .`? That command runs EVERY *.test.ts and
-# *.test.tsx under the folder, and tests/*.test.ts are node:test files for the
-# matcher core, which the kit cannot load ("cannot import node:test"). The kit
-# tests are *.test.tsx, which `node --test tests/` does not pick up, and this
-# script runs them one file at a time with the engine's per-file mode
-# (`claude plugin test --file <abs-path> <dir>`). That mode is undocumented and
-# always exits 0, so the verdict is read from its report line with jq; the
-# script exits 1 on any failure, 2 on misuse.
+# Why a script, when `claude plugin test .` at the repository root runs the same
+# tests? The node:test files are named *.test.mts, which the engine does not
+# load (it loads every *.test.ts and *.test.tsx under the folder), so the root
+# run sees only tests/kit. This script runs the kit files one at a time with
+# the engine's per-file mode (`claude plugin test --file <abs-path> <dir>`),
+# which is undocumented and always exits 0, reads the verdict of each file from
+# its report line with jq, and fails when a file does not load, a test fails, or
+# nothing ran. The script exits 1 on any failure, 2 on misuse.
 set -euo pipefail
 
 USAGE="usage: bash scripts/kit-test.sh [plugin-dir]"

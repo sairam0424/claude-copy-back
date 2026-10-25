@@ -1,6 +1,6 @@
 {
   "name": "copy-back",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Type /cc after copying text from the terminal to put Claude's own text for it back on the clipboard, without the margin and the hard line breaks (experimental, macOS only).",
   "author": {
     "name": "Sairam Ugge"

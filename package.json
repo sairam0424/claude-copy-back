@@ -1,6 +1,6 @@
 {
   "name": "claude-copy-back",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Experimental Claude Code mod for macOS: type /cc after copying text from the terminal to put Claude's own text for it back on the clipboard, without the margin and the hard line breaks. Zero dependencies; Node runs the TypeScript as is (erasable syntax only).",
@@ -19,7 +19,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=1 \"tests/*.test.ts\"",
+    "test": "node --test --test-concurrency=1 \"tests/*.test.mts\"",
     "test:rig": "node --test --test-concurrency=1 \"realrender/tests/*.test.mjs\"",
     "selftest": "node scripts/replay.mjs --selftest",
     "k1": "node scripts/replay.mjs --seed 1 --messages 250 --widths 60,80,100,120",
