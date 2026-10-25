@@ -1,7 +1,8 @@
 // The GitHub workflows and community files are part of the project's contract:
 // a read-only token, pinned actions, one required check that cannot go green by
-// skipping the real jobs, macOS minutes spent only after a merge, and a weekly
-// look at the newest Claude Code. No YAML parser is available (zero
+// skipping the real jobs, macOS run on every pull request and push, CodeQL and
+// Scorecard that can write to code scanning and nothing else, and a weekly look
+// at the newest Claude Code. No YAML parser is available (zero
 // dependencies), so these checks read the files as text; the workflow files are
 // written in the plain block style they rely on. `actionlint` stays the check
 // for syntax and expressions (docs/DEVELOPMENT.md).
@@ -21,6 +22,26 @@ const FLOW_FILES = fs
   .sort();
 const CI = text(`${FLOW_DIR}ci.yml`);
 const DRIFT = text(`${FLOW_DIR}engine-drift.yml`);
+const CODEQL = text(`${FLOW_DIR}codeql.yml`);
+const SCORECARD = text(`${FLOW_DIR}scorecard.yml`);
+
+/**
+ * The only write permissions any workflow may hold, and only on a job (the
+ * workflow-level token is `contents: read` everywhere). Both upload their
+ * results to code scanning, which needs `security-events: write`.
+ */
+const ALLOWED_WRITES: Record<string, string[]> = {
+  "codeql.yml": ["security-events"],
+  "scorecard.yml": ["security-events"],
+};
+
+/** The events each workflow may run on: an allow-list, so a new trigger is a decision. */
+const ALLOWED_TRIGGERS: Record<string, string[]> = {
+  "ci.yml": ["pull_request", "push", "workflow_dispatch"],
+  "codeql.yml": ["pull_request", "push", "schedule", "workflow_dispatch"],
+  "engine-drift.yml": ["schedule", "workflow_dispatch"],
+  "scorecard.yml": ["push", "schedule", "workflow_dispatch"],
+};
 
 /** The file without comment-only lines, so prose cannot satisfy or trip a check. */
 const code = (source: string): string =>
@@ -72,16 +93,44 @@ function runScripts(source: string): string[] {
 }
 
 describe("every workflow is hardened the same way", () => {
-  test("there are exactly ci.yml and engine-drift.yml", () => {
-    assert.deepEqual(FLOW_FILES, ["ci.yml", "engine-drift.yml"]);
+  test("there are exactly ci.yml, codeql.yml, engine-drift.yml and scorecard.yml", () => {
+    // Every entry of the directory, not only *.yml: GitHub also runs *.yaml, so
+    // a file with that extension would otherwise escape every check below.
+    const everything = fs.readdirSync(`${ROOT}${FLOW_DIR}`).sort();
+    assert.deepEqual(everything, [
+      "ci.yml",
+      "codeql.yml",
+      "engine-drift.yml",
+      "scorecard.yml",
+    ]);
+    assert.deepEqual(FLOW_FILES, everything);
   });
 
   for (const file of FLOW_FILES) {
     const source = text(`${FLOW_DIR}${file}`);
 
-    test(`${file}: the token is read-only and no secret is used`, () => {
+    test(`${file}: the token is read-only, writes are named per job, and no secret is used`, () => {
       assert.deepEqual(topBlock(source, "permissions"), ["  contents: read"]);
-      assert.doesNotMatch(code(source), /: *(write|write-all)\b/);
+      assert.doesNotMatch(code(source), /write-all/);
+      // Block style only: a flow mapping such as `permissions: { contents: write }`
+      // would hide a write scope from the line-anchored check below.
+      assert.doesNotMatch(code(source), /permissions:\s*[{[]/);
+      assert.doesNotMatch(code(source), /continue-on-error/);
+      const anywhere = [...code(source).matchAll(/: *write\b/g)];
+      const writes = [...code(source).matchAll(/^( *)([a-z-]+): *write\b/gm)];
+      assert.equal(anywhere.length, writes.length, "a write scope outside a permissions line");
+      for (const [line, indent, scope] of writes) {
+        assert.equal(indent.length, 6, `${line.trim()} is not in a job's permissions block`);
+        assert.ok(
+          (ALLOWED_WRITES[file] ?? []).includes(scope),
+          `${file} may not hold ${scope}: write`,
+        );
+      }
+      assert.equal(
+        writes.length,
+        (ALLOWED_WRITES[file] ?? []).length,
+        `${file}: the write permissions it holds`,
+      );
       assert.doesNotMatch(code(source), /\bsecrets\./);
     });
 
@@ -92,6 +141,8 @@ describe("every workflow is hardened the same way", () => {
         /pull_request_target|workflow_run|issue_comment|issues|repository_dispatch/,
       );
       assert.match(triggers, /^ {2}workflow_dispatch:/m);
+      const named = [...triggers.matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]).sort();
+      assert.deepEqual(named, ALLOWED_TRIGGERS[file], `${file}: its events`);
     });
 
     test(`${file}: every action is a full commit SHA with its version beside it`, () => {
@@ -102,14 +153,19 @@ describe("every workflow is hardened the same way", () => {
       for (const use of uses)
         assert.match(
           use,
-          /^[\w.-]+\/[\w.-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/,
+          /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40} # v\d+\.\d+\.\d+$/,
           use,
         );
     });
 
     test(`${file}: checkout keeps no credentials and no run block expands an expression`, () => {
-      const checkouts = source.match(/uses: actions\/checkout@/g) ?? [];
-      const careful = source.match(/persist-credentials: false/g) ?? [];
+      // Counted on the code only (comments do not count) and tied to the step:
+      // each checkout is followed directly by its own `with: persist-credentials: false`.
+      const checkouts = code(source).match(/uses: actions\/checkout@/g) ?? [];
+      const careful =
+        code(source).match(
+          /uses: actions\/checkout@[^\n]*\n\s+with:\n\s+persist-credentials: false/g,
+        ) ?? [];
       assert.equal(careful.length, checkouts.length);
       for (const script of runScripts(source))
         assert.doesNotMatch(script, /\$\{\{/, script);
@@ -143,7 +199,29 @@ describe("ci.yml", () => {
     assert.match(gate, /toJSON\(needs\)/);
   });
 
-  test("macOS runs only after a merge or on request, never on a pull request", () => {
+  test("the events are pinned, and no condition can switch a job or a step off", () => {
+    const triggers = topBlock(CI, "on").join("\n");
+    assert.match(triggers, /^ {2}pull_request:$/m);
+    assert.match(triggers, /^ {2}push:\n {4}branches: \[main\]$/m);
+    assert.match(triggers, /^ {2}workflow_dispatch:$/m);
+    for (const [id, lines] of jobs) {
+      const body = lines.join("\n");
+      // Only ci-ok has a job-level condition (always()); a step-level `if:`
+      // sits deeper than eight spaces and is refused everywhere in this file.
+      if (id !== "ci-ok") assert.doesNotMatch(body, /^ {4}if:/m, `${id} has a job-level if:`);
+      assert.doesNotMatch(body, /^ {8,}if:/m, `${id} has a step-level if:`);
+    }
+  });
+
+  test("both test jobs run the main suite and the replay self-test", () => {
+    for (const id of ["tests", "tests-macos"]) {
+      const lines = (jobs.get(id) ?? []).join("\n");
+      assert.match(lines, /node --test --test-concurrency=1 "tests\/\*\.test\.mts"/, id);
+      assert.match(lines, /scripts\/replay\.mjs --selftest/, id);
+    }
+  });
+
+  test("macOS runs on every pull request, push and manual run, with no job-level condition", () => {
     const mac = [...jobs].filter(([, lines]) =>
       /runs-on: .*macos/.test(lines.join("\n")),
     );
@@ -152,7 +230,9 @@ describe("ci.yml", () => {
       ["tests-macos"],
     );
     const lines = mac[0][1].join("\n");
-    assert.match(lines, /^ {4}if: github\.event_name != 'pull_request'$/m);
+    assert.doesNotMatch(lines, /^ {4}if:/m);
+    assert.match(lines, /node: \["22\.19\.0", "24\.x"\]/);
+    assert.match(lines, /realrender\/tests\/\*\.test\.mjs/);
     assert.doesNotMatch((jobs.get("tests") ?? []).join("\n"), /macos/);
   });
 
@@ -210,18 +290,19 @@ function decide(document: string, event: string) {
   return spawnSync("bash", args, { encoding: "utf8", env });
 }
 
-const MAC_SKIPPED = { "tests-macos": "skipped" };
+// ci-ok no longer looks at the event: every job, macOS included, must be green
+// on a pull request, a push and a manual run alike.
 const PASSING: [string, string, string][] = [
+  ["a pull request with every job green", "pull_request", needs()],
   ["a push with every job green", "push", needs()],
   ["a manual run with every job green", "workflow_dispatch", needs()],
-  ["a pull request with macOS skipped", "pull_request", needs(MAC_SKIPPED)],
 ];
 const FAILING: [string, string, string, RegExp][] = [
   ["a failed job", "push", needs({ tests: "failure" }), /tests: failure/],
   [
     "a cancelled job",
     "pull_request",
-    needs({ engine: "cancelled", ...MAC_SKIPPED }),
+    needs({ engine: "cancelled" }),
     /engine: cancelled/,
   ],
   [
@@ -233,25 +314,24 @@ const FAILING: [string, string, string, RegExp][] = [
   [
     "an unexpected skip (tests) on a pull request",
     "pull_request",
-    needs({ tests: "skipped", ...MAC_SKIPPED }),
+    needs({ tests: "skipped" }),
     /tests: skipped/,
   ],
-  ["macOS skipped on a push", "push", needs(MAC_SKIPPED), /tests-macos: skipped/],
   [
-    "macOS skipped on a manual run",
-    "workflow_dispatch",
-    needs(MAC_SKIPPED),
+    "macOS skipped on a pull request",
+    "pull_request",
+    needs({ "tests-macos": "skipped" }),
     /tests-macos: skipped/,
   ],
   [
-    "macOS that ran on a pull request",
-    "pull_request",
-    needs(),
-    /tests-macos: success/,
+    "macOS skipped on a push",
+    "push",
+    needs({ "tests-macos": "skipped" }),
+    /tests-macos: skipped/,
   ],
   [
-    "a macOS failure after a merge",
-    "push",
+    "a macOS failure on a pull request",
+    "pull_request",
     needs({ "tests-macos": "failure" }),
     /tests-macos: failure/,
   ],
@@ -287,8 +367,25 @@ describe("the ci-ok script, run on sample results", () => {
     assert.deepEqual(lines, ["tests: failure"]);
   });
 
-  test("the job list used here is the one ci-ok waits for", () => {
-    assert.ok(CI_JOBS.includes("tests-macos"), "the script special-cases tests-macos");
+  // One case per job, per non-success result and per event: a script that
+  // special-cases a single job, result or event (as the old one did for macOS
+  // on a pull request) cannot pass every cell of this table.
+  test("fails for every job, every result but success and every event", { skip }, () => {
+    for (const job of CI_JOBS)
+      for (const result of ["failure", "cancelled", "skipped", null])
+        for (const event of ["pull_request", "push", "workflow_dispatch"]) {
+          const run = decide(needs({ [job]: result }), event);
+          assert.equal(run.status, 1, `${job} ${result} on ${event} must fail`);
+          assert.match(`${run.stdout}${run.stderr}`, new RegExp(`${job}: ${result}`));
+        }
+  });
+
+  test("jq is present where it must be (CI), so the table above cannot be skipped there", () => {
+    if (process.env.CI) assert.ok(HAS_JQ, "jq is missing on this CI runner");
+  });
+
+  test("it checks the jobs ci-ok waits for, macOS included", () => {
+    assert.ok(CI_JOBS.includes("tests-macos"), "ci-ok waits for the macOS job");
     assert.ok(CI_JOBS.length >= 5, CI_JOBS.join(","));
   });
 });
@@ -322,6 +419,103 @@ describe("engine-drift.yml", () => {
     assert.match(DRIFT, /docs\/DEVELOPMENT\.md/);
     assert.match(code(DRIFT), /if: failure\(\)/);
     assert.match(code(DRIFT), /GITHUB_STEP_SUMMARY/);
+  });
+});
+
+/** The `uses:` lines of a workflow that name `github/codeql-action`, as `path@sha`. */
+function codeqlActionPins(source: string): string[] {
+  return [...source.matchAll(/uses: (github\/codeql-action\/[\w-]+)@([0-9a-f]{40})/g)].map(
+    (m) => `${m[1]}@${m[2]}`,
+  );
+}
+
+describe("codeql.yml", () => {
+  const jobs = jobsOf(CODEQL);
+  const lines = (jobs.get("analyze") ?? []).join("\n");
+
+  test("runs on pull requests and pushes to main, weekly and on request", () => {
+    const triggers = topBlock(CODEQL, "on").join("\n");
+    assert.match(triggers, /^ {2}push:\n {4}branches: \[main\]$/m);
+    assert.match(triggers, /^ {2}pull_request:\n {4}branches: \[main\]$/m);
+    assert.match(triggers, /^ {2}schedule:\n {4}- cron: "[^"]+"/m);
+    assert.match(triggers, /^ {2}workflow_dispatch:/m);
+  });
+
+  test("its one job holds contents: read and security-events: write and nothing else", () => {
+    assert.deepEqual([...jobs.keys()], ["analyze"]);
+    const block = /^ {4}permissions:\n((?: {6}.+\n?)+)/m.exec(lines);
+    assert.ok(block, "the job names its permissions");
+    const granted = block[1]
+      .split("\n")
+      .filter((l) => l.trim() !== "")
+      .map((l) => l.replace(/ #.*$/, "").trim())
+      .sort();
+    assert.deepEqual(granted, ["contents: read", "security-events: write"]);
+  });
+
+  test("it scans the JavaScript and TypeScript sources and the workflows themselves, with no build", () => {
+    assert.match(lines, /language: \["javascript-typescript", "actions"\]/);
+    assert.match(lines, /build-mode: none/);
+    assert.match(lines, /languages: \$\{\{ matrix\.language \}\}/);
+    assert.match(lines, /category: "\/language:\$\{\{ matrix\.language \}\}"/);
+  });
+
+  test("no condition can switch the job off", () => {
+    assert.doesNotMatch(lines, /^ {4}if:/m);
+    assert.doesNotMatch(lines, /^ {8,}if:/m);
+  });
+
+  test("init and analyze use the same codeql-action commit", () => {
+    const pins = codeqlActionPins(CODEQL);
+    assert.deepEqual(
+      pins.map((p) => p.split("@")[0]).sort(),
+      ["github/codeql-action/analyze", "github/codeql-action/init"],
+    );
+    assert.equal(new Set(pins.map((p) => p.split("@")[1])).size, 1);
+  });
+});
+
+describe("scorecard.yml", () => {
+  const jobs = jobsOf(SCORECARD);
+  const lines = (jobs.get("scorecard") ?? []).join("\n");
+
+  test("runs on pushes to main, weekly and on request, never on a pull request", () => {
+    const triggers = topBlock(SCORECARD, "on").join("\n");
+    assert.match(triggers, /^ {2}push:\n {4}branches: \[main\]$/m);
+    assert.match(triggers, /^ {2}schedule:\n {4}- cron: "[^"]+"/m);
+    assert.match(triggers, /^ {2}workflow_dispatch:/m);
+    assert.doesNotMatch(triggers, /pull_request/);
+  });
+
+  test("its one job holds contents: read and security-events: write, and publishes nothing", () => {
+    assert.deepEqual([...jobs.keys()], ["scorecard"]);
+    const block = /^ {4}permissions:\n((?: {6}.+\n?)+)/m.exec(lines);
+    assert.ok(block, "the job names its permissions");
+    const granted = block[1]
+      .split("\n")
+      .filter((l) => l.trim() !== "")
+      .map((l) => l.replace(/ #.*$/, "").trim())
+      .sort();
+    assert.deepEqual(granted, ["contents: read", "security-events: write"]);
+    assert.match(lines, /publish_results: false/);
+    assert.doesNotMatch(code(SCORECARD), /id-token/);
+  });
+
+  test("the file Scorecard writes is the file that is uploaded, and no condition switches the job off", () => {
+    const written = /results_file: (\S+)/.exec(lines)?.[1];
+    const uploaded = /sarif_file: (\S+)/.exec(lines)?.[1];
+    assert.ok(written, "results_file is set");
+    assert.equal(uploaded, written);
+    assert.match(lines, /results_format: sarif/);
+    assert.doesNotMatch(lines, /^ {4}if:/m);
+    assert.doesNotMatch(lines, /^ {8,}if:/m);
+  });
+
+  test("the SARIF upload uses the same codeql-action commit as codeql.yml", () => {
+    const [upload] = codeqlActionPins(SCORECARD);
+    assert.ok(upload?.startsWith("github/codeql-action/upload-sarif@"), String(upload));
+    const sha = (pin: string) => pin.split("@")[1];
+    assert.equal(sha(upload as string), sha(codeqlActionPins(CODEQL)[0] as string));
   });
 });
 

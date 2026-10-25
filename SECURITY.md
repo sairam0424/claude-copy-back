@@ -10,8 +10,8 @@ Only the latest release is supported: 0.1.x, which is experimental. Fixes land o
 
 Do not open a public issue for a security problem, and never paste your clipboard or any message text into a report: describe the shape of the input instead.
 
-- If the repository has **private vulnerability reporting** (Security tab, "Report a vulnerability"), use it.
-- Until then, contact the owner, [sairam0424](https://github.com/sairam0424), privately, for example through the contact details on that profile. Do not use an issue or a pull request.
+- Use this repository's **private vulnerability reporting**: the Security tab, "Report a vulnerability".
+- If that is not possible for you, contact the owner, [sairam0424](https://github.com/sairam0424), privately, for example through the website linked on that profile. Do not use an issue or a pull request.
 
 This is a one-person project. Expect an acknowledgement within seven days; there is no fixed time to a fix. A report that includes a failing test is the fastest to act on.
 

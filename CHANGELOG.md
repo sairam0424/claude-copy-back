@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `CODE_OF_CONDUCT.md`, the Contributor Covenant 2.1 with its attribution section. Conduct reports go to the owner privately, by the same routes as security reports; `CONTRIBUTING.md` links it.
+- `codeql.yml`: CodeQL code scanning of the JavaScript and TypeScript sources and the workflows on every pull request to `main`, every push to `main` and weekly. `scorecard.yml`: OpenSSF Scorecard on pushes to `main` and weekly, with `publish_results: false`. Both upload to the Security tab with `security-events: write` on their one job and are not part of `ci-ok`.
+
+### Changed
+- The macOS jobs run on every pull request, not only after a merge to `main`, now that the repository is public and the runners are free. `ci-ok` therefore requires every job, `tests-macos` included, to have succeeded on every event; a skip of any job fails it. `tests/workflows.test.mts` runs the new rule and allows `security-events: write` only on the CodeQL and Scorecard jobs.
+- `SECURITY.md` names private vulnerability reporting as the first route now that it is switched on; the README no longer carries the install note for a private repository; the release steps in `docs/DEVELOPMENT.md` describe the protected `main` (pull request, squash merge, tag, then push the tag).
 
 ## [0.1.1] - 2026-10-25
 

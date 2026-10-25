@@ -28,7 +28,7 @@ npm run test:rig                  # if realrender/ changed (macOS)
 
 The engine writes type files into a plugin folder it loads, so run the engine gates on a copy of the repository, as the development guide explains. Work test first: a bug fix needs a test that fails without it. The `node:test` files are named `*.test.mts` on purpose (the engine's runner loads every `*.test.ts`).
 
-CI runs on every pull request on Linux (Node 22.19.0, 24.x and 26.x, the source guard, `shellcheck` and the engine gates). The macOS legs and the rig's unit tests run after a merge to `main`, or when the maintainer starts the workflow by hand, so run `npm run test:rig` yourself if you touched `realrender/`. The check to require is `ci-ok`; it is green only when every job finished as expected.
+CI runs on every pull request on Linux (Node 22.19.0, 24.x and 26.x, the source guard, `shellcheck` and the engine gates) and on macOS (Node 22.19.0 and 24.x plus the rig's unit tests). CodeQL scans the JavaScript and TypeScript sources and the workflows, and OpenSSF Scorecard runs on `main`; neither is a required check. A first pull request from a fork waits for the maintainer to approve the workflow run. The check to require is `ci-ok`; it is green only when every CI job succeeded.
 
 A change under `hooks/` or `src/core/` changes what runs inside Claude Code, so it needs a new sealed live pass before a release. The maintainer runs that on a Mac; say in the pull request what you changed there.
 
