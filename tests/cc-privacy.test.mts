@@ -104,12 +104,13 @@ test("privacy: a run never throws, so no error can carry a text", async () => {
   }
 });
 
-test("privacy: toasts hold digits and fixed words only", async () => {
+test("privacy: toasts hold digits and fixed words only, and no plugin name", async () => {
   for (const opts of Object.values(scenarios)) {
     const f = fakes(opts);
     await runCc(f.deps);
     for (const t of f.toasts) {
-      assert.match(t, /^copy-back: [a-z0-9 ,()=-]+$/, t);
+      assert.match(t, /^[a-z0-9 ,()=-]+$/, t);
+      assert.doesNotMatch(t, /copy-back/, t);
     }
   }
 });
@@ -135,6 +136,25 @@ test("privacy: the spies see a clipboard text sent to the console, a stream or f
     assert.equal(leaks(calls).length, 1, name);
     assert.equal(leaks(calls)[0]?.hasCanary, true, name);
   }
+});
+
+test("privacy: the spies see the clipboard printed as code points from a promise job (review mutant M2b)", async () => {
+  const f = fakes({
+    stdout: COPY_CANARY,
+    rows,
+    find: (copied) => {
+      const encoded = Array.from(copied)
+        .map((c) => c.codePointAt(0))
+        .join(",");
+      Promise.resolve().then(console.log.bind(console, encoded));
+      return { ok: false, reason: "no-match" };
+    },
+  });
+  const { calls } = await withSpies(() => runCc(f.deps));
+  const found = leaks(calls);
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.hasCanary, false, "the code points are not the canary");
+  assert.equal(found[0]?.fromPlugin, false, "a promise job has no plugin frame");
 });
 
 test("privacy: a call is attributed to the plugin by a stack frame under hooks/ or src/core/", () => {

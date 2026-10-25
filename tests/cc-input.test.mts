@@ -40,6 +40,36 @@ test("classifyClip: the character bound is inclusive, one over is too large", ()
   assert.deepEqual(classifyClip(ok(over)), { ok: false, reason: "too-large" });
 });
 
+test("classifyClip: the bound counts characters, not UTF-16 units (an emoji is one)", () => {
+  const emoji = "\u{1F600}";
+  assert.equal(emoji.length, 2);
+  const atBound = emoji.repeat(MAX_CLIPBOARD_CHARS);
+  assert.equal(atBound.length, 2 * MAX_CLIPBOARD_CHARS);
+  assert.equal(classifyClip(ok(atBound)).ok, true);
+  const over = emoji.repeat(MAX_CLIPBOARD_CHARS + 1);
+  assert.deepEqual(classifyClip(ok(over)), { ok: false, reason: "too-large" });
+});
+
+test("classifyClip: the character bound holds for text that mixes one- and two-unit characters", () => {
+  const mixed = (astral: number, plain: number) =>
+    "\u{1F600}".repeat(astral) + "x".repeat(plain);
+  const half = MAX_CLIPBOARD_CHARS / 2;
+  assert.equal(classifyClip(ok(mixed(half, half))).ok, true);
+  assert.deepEqual(classifyClip(ok(mixed(half, half + 1))), {
+    ok: false,
+    reason: "too-large",
+  });
+  assert.deepEqual(classifyClip(ok(mixed(half + 1, half))), {
+    ok: false,
+    reason: "too-large",
+  });
+});
+
+test("classifyClip: a text of more than twice the bound in units is too large without counting it", () => {
+  const huge = "a".repeat(2 * MAX_CLIPBOARD_CHARS + 1);
+  assert.deepEqual(classifyClip(ok(huge)), { ok: false, reason: "too-large" });
+});
+
 test("classifyClip: a malformed answer is unreadable, not a crash", () => {
   const malformed: unknown[] = [
     undefined,

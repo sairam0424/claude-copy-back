@@ -22,6 +22,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Whether `text` holds more than `max` characters (code points, as the toast
+ * counts them), without building an array. A character is one or two UTF-16
+ * units, so a text of up to `max` units is within the bound and one of more
+ * than twice that is over it; only the band between is counted.
+ */
+function hasMoreThan(text: string, max: number): boolean {
+  if (text.length <= max) return false;
+  if (text.length > 2 * max) return true;
+  let seen = 0;
+  for (const _ of text) {
+    seen += 1;
+    if (seen > max) return true;
+  }
+  return false;
+}
+
+/**
  * Turn the answer of the clipboard read into the copied text or a refusal.
  * A read that failed, was cut short, or is over the bound is never used in
  * part: a half-read clipboard could match the wrong thing.
@@ -32,7 +49,7 @@ export function classifyClip(run: unknown): ClipRead {
     return { ok: false, reason: "unreadable" };
   }
   if (run.isStdoutTruncated === true) return { ok: false, reason: "too-large" };
-  if (run.stdout.length > MAX_CLIPBOARD_CHARS) {
+  if (hasMoreThan(run.stdout, MAX_CLIPBOARD_CHARS)) {
     return { ok: false, reason: "too-large" };
   }
   if (run.stdout.trim() === "") return { ok: false, reason: "empty" };

@@ -28,7 +28,7 @@ test("happy path: the paste is what reaches the copy, and one toast reports coun
   assert.deepEqual(f.copies, [PASTE_PROSE]);
   assert.equal(out.copied, true);
   assert.deepEqual(f.toasts, [
-    `copy-back: copied ${PASTE_PROSE.length} characters from reply 1 (1 = newest)`,
+    `copied ${PASTE_PROSE.length} chars from reply 1 (1 = newest)`,
   ]);
   assert.deepEqual(f.log, ["read", "messages", "copy", "toast", "forget"]);
 });
@@ -76,19 +76,19 @@ test("refusals from the matcher leave the copy uncalled and say why", async () =
       "too-short",
       "short",
       conversation,
-      "copy-back: copied text is under 12 characters, nothing changed",
+      "copied text under 12 chars, nothing changed",
     ],
     [
       "no-match",
       "no such text anywhere in these replies",
       conversation,
-      "copy-back: no match in the last 2 replies, nothing changed",
+      "no match in last 2 replies, nothing changed",
     ],
     [
       "ambiguous",
       COPY_TWICE,
       twice,
-      "copy-back: matches more than one place, nothing changed",
+      "matches more than one place, nothing changed",
     ],
   ];
   for (const [reason, stdout, rows, toast] of table) {
@@ -109,9 +109,7 @@ test("an empty or blank clipboard stops before the session is read", async () =>
     assert.equal(!out.copied && out.reason, "empty");
     assert.equal(f.count("messages"), 0);
     assert.equal(f.count("copy"), 0);
-    assert.deepEqual(f.toasts, [
-      "copy-back: clipboard is empty, nothing changed",
-    ]);
+    assert.deepEqual(f.toasts, ["clipboard is empty, nothing changed"]);
   }
 });
 
@@ -133,7 +131,7 @@ test("a failed clipboard read stops before the session is read", async () => {
     assert.equal(f.count("copy"), 0, name);
     assert.deepEqual(
       f.toasts,
-      ["copy-back: could not read the clipboard, nothing changed"],
+      ["could not read the clipboard, nothing changed"],
       name,
     );
   }
@@ -167,9 +165,7 @@ test("a session that cannot be read leaves the copy uncalled", async () => {
     const out = await runCc(f.deps);
     assert.equal(!out.copied && out.reason, "session-unreadable");
     assert.equal(f.count("copy"), 0);
-    assert.deepEqual(f.toasts, [
-      "copy-back: could not read the session, nothing changed",
-    ]);
+    assert.deepEqual(f.toasts, ["could not read the session, nothing changed"]);
   }
 });
 
@@ -177,9 +173,7 @@ test("no replies at all is a no-match over zero replies", async () => {
   const f = fakes({ stdout: COPY_PROSE, rows: [row("user", "only me")] });
   const out = await runCc(f.deps);
   assert.equal(!out.copied && out.reason, "no-match");
-  assert.deepEqual(f.toasts, [
-    "copy-back: no replies to search, nothing changed",
-  ]);
+  assert.deepEqual(f.toasts, ["no replies to search, nothing changed"]);
 });
 
 test("rows without text (tool-only turns) are not searched but do not break the search", async () => {
@@ -224,9 +218,7 @@ test("a copy that answers not-copied is reported with the engine's reason word",
     const out = await runCc(f.deps);
     assert.equal(!out.copied && out.reason, "copy-refused");
     assert.equal(!out.copied && out.copyReason, reason);
-    assert.deepEqual(f.toasts, [
-      `copy-back: the clipboard write was refused (${reason})`,
-    ]);
+    assert.deepEqual(f.toasts, [`clipboard write was refused (${reason})`]);
   }
 });
 
@@ -240,9 +232,7 @@ test("an unknown reason word never reaches the toast", async () => {
     },
   });
   await runCc(f.deps);
-  assert.deepEqual(f.toasts, [
-    "copy-back: the clipboard write was refused (refused)",
-  ]);
+  assert.deepEqual(f.toasts, ["clipboard write was refused (refused)"]);
 });
 
 test("a copy that rejects or answers nonsense is a failed write", async () => {
@@ -264,7 +254,7 @@ test("a copy that rejects or answers nonsense is a failed write", async () => {
   for (const f of bad) {
     const out = await runCc(f.deps);
     assert.equal(!out.copied && out.reason, "copy-failed");
-    assert.deepEqual(f.toasts, ["copy-back: the clipboard write failed"]);
+    assert.deepEqual(f.toasts, ["clipboard write failed"]);
   }
 });
 
@@ -315,9 +305,7 @@ test("an error inside the matcher is caught, reported, and copies nothing", asyn
   const out = await runCc(f.deps);
   assert.equal(!out.copied && out.reason, "failed");
   assert.equal(f.count("copy"), 0);
-  assert.deepEqual(f.toasts, [
-    "copy-back: stopped on an unexpected error, nothing changed",
-  ]);
+  assert.deepEqual(f.toasts, ["unexpected error, nothing changed"]);
 });
 
 test("the cache of message text is dropped after every run, on every path", async () => {

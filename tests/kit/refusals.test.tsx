@@ -21,58 +21,58 @@ type Case = { opts: KitOptions; toast: string };
 const REFUSALS: Record<string, Case> = {
   "copied text too short": {
     opts: { stdout: "short", rows },
-    toast: `copy-back: copied text is under 12 characters${UNCHANGED}`,
+    toast: `copied text under 12 chars${UNCHANGED}`,
   },
   "no match in any reply": {
     opts: { stdout: "text from another application entirely", rows },
-    toast: `copy-back: no match in the last reply${UNCHANGED}`,
+    toast: `no match in the last reply${UNCHANGED}`,
   },
   "ambiguous between two places": {
     opts: {
       stdout: COPY_TWICE,
       rows: [row("assistant", REPLY_TWICE)],
     },
-    toast: `copy-back: matches more than one place${UNCHANGED}`,
+    toast: `matches more than one place${UNCHANGED}`,
   },
   "empty pbpaste output": {
     opts: { stdout: "", rows },
-    toast: `copy-back: clipboard is empty${UNCHANGED}`,
+    toast: `clipboard is empty${UNCHANGED}`,
   },
   "whitespace-only pbpaste output": {
     opts: { stdout: " \n\t ", rows },
-    toast: `copy-back: clipboard is empty${UNCHANGED}`,
+    toast: `clipboard is empty${UNCHANGED}`,
   },
   "pbpaste exit code non-zero": {
     opts: { stdout: COPY_PROSE, exitCode: 1, rows },
-    toast: `copy-back: could not read the clipboard${UNCHANGED}`,
+    toast: `could not read the clipboard${UNCHANGED}`,
   },
   "pbpaste cannot start (the call rejects)": {
     opts: { runDeny: "spawn pbpaste ENOENT", rows },
-    toast: `copy-back: could not read the clipboard${UNCHANGED}`,
+    toast: `could not read the clipboard${UNCHANGED}`,
   },
   "pbpaste times out (the call rejects)": {
     opts: { runDeny: "timed out after 2000 ms", rows },
-    toast: `copy-back: could not read the clipboard${UNCHANGED}`,
+    toast: `could not read the clipboard${UNCHANGED}`,
   },
   "the process stub itself crashes": {
     opts: { runThrow: "a lower hook crashed", rows },
-    toast: `copy-back: could not read the clipboard${UNCHANGED}`,
+    toast: `could not read the clipboard${UNCHANGED}`,
   },
   "pbpaste output over the bound": {
     opts: { stdout: "a".repeat(200_001), rows },
-    toast: `copy-back: clipboard is over 200000 characters${UNCHANGED}`,
+    toast: `clipboard over 200000 chars${UNCHANGED}`,
   },
   "pbpaste output cut by the engine's own cap": {
     opts: { stdout: COPY_PROSE, isStdoutTruncated: true, rows },
-    toast: `copy-back: clipboard is over 200000 characters${UNCHANGED}`,
+    toast: `clipboard over 200000 chars${UNCHANGED}`,
   },
   "session.messages is empty": {
     opts: { stdout: COPY_PROSE, rows: [] },
-    toast: `copy-back: no replies to search${UNCHANGED}`,
+    toast: `no replies to search${UNCHANGED}`,
   },
   "session.messages rejects": {
     opts: { stdout: COPY_PROSE, rowsDeny: "no transcript" },
-    toast: `copy-back: could not read the session${UNCHANGED}`,
+    toast: `could not read the session${UNCHANGED}`,
   },
   "only non-text rows": {
     opts: {
@@ -82,7 +82,7 @@ const REFUSALS: Record<string, Case> = {
         { role: "user", text: "", toolUses: [], toolResults: [{ text: "x" }] },
       ],
     },
-    toast: `copy-back: no replies to search${UNCHANGED}`,
+    toast: `no replies to search${UNCHANGED}`,
   },
 };
 
@@ -129,9 +129,7 @@ for (const reason of WRITE_ANSWERS) {
     const result = await press($);
     expect(isEmptyAnswer(result)).toBe(true);
     expect(k.copies).toHaveLength(1);
-    expect(k.toasts).toEqual([
-      `copy-back: the clipboard write was refused (${reason})`,
-    ]);
+    expect(k.toasts).toEqual([`clipboard write was refused (${reason})`]);
   });
 }
 
@@ -145,7 +143,7 @@ test("ui.copy rejects: one attempt, a failed-write line, nothing retried", async
   const result = await press($);
   expect(isEmptyAnswer(result)).toBe(true);
   expect(k.copies).toHaveLength(1);
-  expect(k.toasts).toEqual(["copy-back: the clipboard write failed"]);
+  expect(k.toasts).toEqual(["clipboard write failed"]);
 });
 
 test("a toast that throws does not undo the write or change the answer", async ($, on) => {

@@ -18,8 +18,9 @@ export const register: Register = (on) => {
         immediate: true,
       });
     } catch {
-      // A name the engine refuses must not break the session's start.
-      notify($, "copy-back: could not register /cc");
+      // A name the engine refuses must not break the session's start. The
+      // engine shows the plugin's name in front of the line.
+      notify($, "could not register /cc");
     }
     return next(e);
   });

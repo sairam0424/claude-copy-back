@@ -155,6 +155,7 @@ test("privacy: the toast of every path is built from counts and fixed words", as
   await start($);
   await press($);
   for (const toast of k.toasts) {
-    expect(toast).toMatch(/^copy-back: [a-z0-9 ,()=-]+$/);
+    expect(toast).toMatch(/^[a-z0-9 ,()=-]+$/);
+    expect(toast).not.toMatch(/copy-back/);
   }
 });

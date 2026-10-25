@@ -19,7 +19,7 @@ test("session.start declares /cc: immediate, with a description, once", async ($
 test("a refused declaration does not break the session start", async ($, on) => {
   const k = kit(on, { registerDeny: "name taken" });
   await expect(start($)).resolves.toBeUndefined();
-  expect(k.toasts).toEqual(["copy-back: could not register /cc"]);
+  expect(k.toasts).toEqual(["could not register /cc"]);
   expect(k.trapped).toHaveLength(0);
 });
 
@@ -73,6 +73,6 @@ test("the copy is the exact paste and the toast reports counts only", async ($, 
   await press($);
   expect(k.copies).toEqual([{ text: PASTE_PROSE }]);
   expect(k.toasts).toEqual([
-    `copy-back: copied ${PASTE_PROSE.length} characters from reply 1 (1 = newest)`,
+    `copied ${PASTE_PROSE.length} chars from reply 1 (1 = newest)`,
   ]);
 });

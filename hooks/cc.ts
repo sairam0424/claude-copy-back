@@ -1,5 +1,5 @@
 // The /cc run, with the engine injected: no `$` in this file, so it is tested
-// with plain functions (tests/cc-run.test.ts). hooks/run.ts wires the real
+// with plain functions (tests/cc-run.test.mts). hooks/run.ts wires the real
 // engine calls in; this file only decides.
 //
 // One run: read the clipboard once, read the session, ask the verified core

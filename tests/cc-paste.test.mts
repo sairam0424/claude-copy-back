@@ -64,7 +64,7 @@ test("the toast counts the characters written, which are the paste's, not the so
     assert.notEqual(Array.from(paste).length, Array.from(source).length);
     assert.match(
       f.toasts[0] ?? "",
-      new RegExp(`copied ${paste.length} characters`),
+      new RegExp(`copied ${paste.length} chars `),
     );
   }
 });
