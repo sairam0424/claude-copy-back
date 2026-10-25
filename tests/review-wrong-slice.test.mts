@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { findSource } from "../src/core/match.ts";
 import { assertHit, makeCase } from "../src/sim/testkit.ts";
+import { assertCpuWithin, cpuTimed } from "./timing.ts";
 
 // Regression tests for the review findings that made findSource return a
 // WRONG slice (worse than no match): F1 head-truncated copies, F2 a newer
@@ -112,14 +113,14 @@ describe("F5: ambiguity is judged on every hit, not the first 64", () => {
     });
   });
 
-  test("thousands of identical hits stay fast and unambiguous", () => {
+  test("thousands of identical hits stay bounded and unambiguous", () => {
     const source = "ab cd ef gh ij kl ".repeat(5000);
-    const t0 = performance.now();
-    const result = findSource("ab cd ef gh ij kl ab cd ef gh ij kl", [source]);
-    const ms = performance.now() - t0;
+    const { value: result, cpuMs } = cpuTimed(() =>
+      findSource("ab cd ef gh ij kl ab cd ef gh ij kl", [source]),
+    );
     assertHit(result, [source]);
     assert.ok(result.candidates > 4000, `candidates ${result.candidates}`);
-    assert.ok(ms < 1500, `took ${ms.toFixed(0)} ms`);
+    assertCpuWithin("review-wrong-slice: identical hits", cpuMs, 1500);
   });
 });
 

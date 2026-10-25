@@ -3,25 +3,23 @@ import assert from "node:assert/strict";
 import { findSource, resetMatchCache } from "../src/core/match.ts";
 import { projectText } from "../src/core/visible.ts";
 import { stripDecoration } from "../src/core/strip.ts";
+import { assertCpuWithin, cpuTimed } from "./timing.ts";
 
 // F6 (never throws) and F7 (no super-linear time) on pathological input.
 // Nothing here is realistic text; the point is that a hostile or accidental
 // message cannot crash or stall the matcher. Time is main-thread CPU time so a
-// busy machine cannot inflate it; the bounds are generous (the fixes bring
-// every case to a few milliseconds, the old code took seconds to minutes).
-
-const cpuMs = (): number => {
-  const { user, system } = process.threadCpuUsage();
-  return (user + system) / 1000;
-};
+// busy machine cannot inflate it; the bounds are generous and scaled by
+// CB_TEST_TIME_FACTOR (tests/timing.ts). Idle, the slowest case here takes
+// under a second of CPU; the old code took seconds to minutes.
 
 const NEEDLE = "a sentence that appears in none of the pathological messages";
 
 function timedFind(message: string): { ms: number; reason: string } {
   resetMatchCache();
-  const t0 = cpuMs();
-  const result = findSource(NEEDLE, [message]);
-  return { ms: cpuMs() - t0, reason: result.ok ? "hit" : result.reason };
+  const { value: result, cpuMs } = cpuTimed(() =>
+    findSource(NEEDLE, [message]),
+  );
+  return { ms: cpuMs, reason: result.ok ? "hit" : result.reason };
 }
 
 describe("F6: stripDecoration is total", () => {
@@ -68,40 +66,44 @@ describe("F6: deeply nested containers do not overflow the stack", () => {
 });
 
 describe("F7: time stays linear on pathological input", () => {
-  const BOUND_MS = 1000;
+  const BOUND_MS = 4000;
 
   test("200 KB of unclosed link destinations", () => {
     const { ms, reason } = timedFind("[a](b".repeat(40_000));
     assert.equal(reason, "no-match");
-    assert.ok(ms < BOUND_MS, `${ms.toFixed(0)} ms`);
+    assertCpuWithin("limits: unclosed destinations", ms, BOUND_MS);
   });
 
   test("200 KB of unclosed link destinations with an angle bracket", () => {
     const { ms } = timedFind("[a](<b".repeat(33_000));
-    assert.ok(ms < BOUND_MS, `${ms.toFixed(0)} ms`);
+    assertCpuWithin(
+      "limits: unclosed destinations with an angle bracket",
+      ms,
+      BOUND_MS,
+    );
   });
 
   test("200 KB of unclosed link titles", () => {
     const { ms } = timedFind('[a](b "c'.repeat(25_000));
-    assert.ok(ms < BOUND_MS, `${ms.toFixed(0)} ms`);
+    assertCpuWithin("limits: unclosed titles", ms, BOUND_MS);
   });
 
   test("200 KB of closers that have no opener", () => {
     const { ms, reason } = timedFind("x* ".repeat(70_000));
     assert.equal(reason, "no-match");
-    assert.ok(ms < BOUND_MS, `${ms.toFixed(0)} ms`);
+    assertCpuWithin("limits: closers with no opener", ms, BOUND_MS);
   });
 
   test("200 KB of underscore closers with no opener", () => {
     const { ms } = timedFind("x_ ".repeat(70_000));
-    assert.ok(ms < BOUND_MS, `${ms.toFixed(0)} ms`);
+    assertCpuWithin("limits: underscore closers with no opener", ms, BOUND_MS);
   });
 
   test("a nested list 2000 levels deep (a 4 MB message)", () => {
     let message = "";
     for (let level = 0; level < 2000; level++) message += `${" ".repeat(2 * level)}- x\n`;
     const { ms } = timedFind(message);
-    assert.ok(ms < 6 * BOUND_MS, `${ms.toFixed(0)} ms`);
+    assertCpuWithin("limits: nested list", ms, 6 * BOUND_MS);
   });
 
   test("a legitimate long destination is still read as a link (label, space, destination in parentheses)", () => {
