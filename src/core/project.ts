@@ -9,13 +9,17 @@
 //                came from (hidden markers have no entry; they sit between)
 //     layout     per row: the projected range it shows (used by copy.ts)
 //
-// ASSUMPTIONS about the real renderer (unverified until real captures exist):
-// two-column margin; reply bullet on the first row; list items "• " / "1. "
-// with the text hanging under the first word; quote rows start with "▎ ";
-// code verbatim, wrapped by characters; links drawn as their label; soft
-// line breaks drawn as line breaks; tables NOT modelled (one opaque region).
+// The renderer, as read from sealed-rig screens of Claude Code 2.1.309 and
+// 2.1.310 (tests/real-render.test.mts, tests/drawings.test.mts): two-column
+// margin; reply bullet "⏺" on the first row; list items "- " and "1. " (letters
+// and roman numerals when nested, ordinals.ts) with the text hanging under the
+// first word; quote rows start with "▎ "; code verbatim, wrapped by characters;
+// links and struck text as the terminal draws them (drawing.ts); soft line
+// breaks drawn as line breaks; tables NOT modelled (one opaque region).
 // The visible text itself is built in visible.ts; this file lays it out.
 
+import { DEFAULT_DRAWING } from "./drawing.ts";
+import type { Drawing } from "./drawing.ts";
 import { BULLET, OPAQUE, projectText } from "./visible.ts";
 import type { LogicalLine, ProjectedText } from "./visible.ts";
 import { wrapSpans, TAB_CELLS } from "./wrap.ts";
@@ -32,6 +36,8 @@ export interface ProjectOptions {
   bullet?: string;
   /** Drawn in place of the first margin on the first row; null for none. Default "⏺". */
   replyBullet?: string | null;
+  /** How links and struck text are drawn (drawing.ts). Default DEFAULT_DRAWING. */
+  drawing?: Drawing;
 }
 
 export interface RowInfo {
@@ -56,7 +62,7 @@ export interface Projection {
 function layoutRows(
   projected: string,
   lines: readonly LogicalLine[],
-  opts: Required<Omit<ProjectOptions, "bullet">>,
+  opts: Required<Omit<ProjectOptions, "bullet" | "drawing">>,
 ): RowInfo[] {
   const margin = " ".repeat(opts.margin);
   const rows: RowInfo[] = [];
@@ -120,7 +126,7 @@ function renderRow(info: RowInfo, projected: string, width: number): string {
 }
 
 export function project(source: string, opts: ProjectOptions): Projection {
-  const { projected, map, lines } = projectText(source, opts.bullet ?? BULLET);
+  const { projected, map, lines } = projectText(source, opts.bullet ?? BULLET, opts.drawing ?? DEFAULT_DRAWING);
   const layout = layoutRows(projected, lines, {
     width: opts.width,
     margin: opts.margin ?? 2,

@@ -14,6 +14,7 @@
 // becomes a sibling list (the visible text is identical, only the drawn
 // indentation differs).
 
+import { ordinalOf } from "./ordinals.ts";
 import { stringWidth } from "./width.ts";
 import {
   atx, dedent, fenceCloses, fenceOpen, HR, indentCols, interruptsParagraph,
@@ -56,13 +57,11 @@ interface Scope {
   indent: number;
   /** Containers entered so far (quotes and list items). */
   depth: number;
+  /** List items entered so far: it picks the marker style of an ordered list (ordinals.ts). */
+  listDepth: number;
   bullet: string;
   out: Block[];
-  /**
-   * Source offset where each consumed line's own text starts, once every
-   * container prefix (list indentation, "> ") is removed. The paste step uses
-   * it to drop those prefixes. Shared by all scopes of one parse.
-   */
+  /** Source offset where each consumed line's own text starts, container prefixes removed (paste.ts); shared by one parse. */
   contentAt: number[];
 }
 
@@ -345,7 +344,7 @@ function list(
   let i = from;
   const firstMarker = listMarker((lines[from] as LineView).t) as Marker;
   const delimiter = firstMarker.text.slice(-1);
-  let index = 0; // Claude Code numbers an ordered list start + index and draws "." (calibration, seed 101)
+  let index = 0; // numbered start + index, drawn with "." and a style that follows the depth (ordinals.ts)
   const sameList = (m: Marker | null): m is Marker =>
     m !== null && m.ordered === ordered && (!ordered || m.text.slice(-1) === delimiter);
   while (i < n) {
@@ -357,12 +356,13 @@ function list(
     // after it may be handed back to the outer loop.
     let keep = item.length;
     while (keep > 1 && isBlank((item[keep - 1] as LineView).t)) keep--;
-    const glyph = ordered ? `${firstMarker.num + index++}. ` : `${scope.bullet} `;
+    const glyph = ordered ? `${ordinalOf(scope.listDepth, firstMarker.num + index++)}. ` : `${scope.bullet} `;
     const lead: Lead = { glyph, src: line.o + mk.at, srcLen: mk.text.length };
     const inner: Scope = {
       ...scope,
       indent: scope.indent + stringWidth(glyph),
       depth: scope.depth + 1,
+      listDepth: scope.listDepth + 1,
     };
     walk(item.slice(0, keep), inner, [...pending, lead]);
     pending = [];
@@ -387,7 +387,7 @@ export function parseDocument(source: string, bullet: string): Document {
   const contentAt: number[] = [];
   walk(
     splitLines(source),
-    { quote: 0, indent: 0, depth: 0, bullet, out: blocks, contentAt },
+    { quote: 0, indent: 0, depth: 0, listDepth: 0, bullet, out: blocks, contentAt },
     [],
   );
   return { blocks, contentAt: Int32Array.from(contentAt).sort() };

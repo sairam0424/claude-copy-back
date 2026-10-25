@@ -2,20 +2,26 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { inlineMask } from "../src/core/inline.ts";
 import { cellWidth, stringWidth } from "../src/core/width.ts";
+import { assertCpuWithin, cpuTimed } from "./timing.ts";
 
 // inlineMask marks which characters of one paragraph's markdown the renderer
-// does NOT draw (emphasis markers, backticks, link brackets and titles,
-// escapes). Everything else is visible, including unmatched markers
-// ("2 * 3 * 4" stays as typed) and strikethrough tildes. A link is drawn
-// "label (destination)" like the real renderer (calibration, seed 101).
+// does NOT draw (emphasis markers, backticks, link brackets, escapes).
+// Everything else is visible, including unmatched markers ("2 * 3 * 4" stays
+// as typed) and strikethrough tildes. A link is drawn "label (destination)" and,
+// with a title, "label (destination) ("title")" like the real renderer
+// (calibration seeds 101 and 4103; the title was believed hidden until the
+// seed 4103 screens showed it). The Warp drawing is in drawings.test.mts.
 
-// Mask values: 0 drawn as typed, 1 hidden, 2 drawn as a space (the "]" of a link).
+// Mask values: 0 drawn as typed, 1 hidden, 2 drawn as a space (the "]" of a link),
+// 3 drawn as ") (" (blanks before a title), 4 drawn as a double quote (a title's delimiter).
 function visible(text: string): string {
   const hidden = inlineMask(text);
   let out = "";
   for (let i = 0; i < text.length; i++) {
     if (hidden[i] === 0) out += text[i];
     else if (hidden[i] === 2) out += " ";
+    else if (hidden[i] === 3) out += ") (";
+    else if (hidden[i] === 4) out += '"';
   }
   return out;
 }
@@ -33,11 +39,13 @@ const table: Array<[string, string, string]> = [
   ["double backtick span holding a backtick", "``a`b``", "a`b"],
   ["code span trims one padding space each side", "x ` a ` y", "x a y"],
   ["code span is literal inside", "`**x** [y](z)`", "**x** [y](z)"],
-  ["code span across a newline", "`a\nb`", "a\nb"],
+  ["code span across a newline (drawn as a space)", "`a\nb`", "a b"],
   ["unclosed backtick stays", "a ` b", "a ` b"],
   ["link", "see [the docs](https://x.y/a) now", "see the docs (https://x.y/a) now"],
   ["link destination with parens", "[l](https://x.y/a_(b))", "l (https://x.y/a_(b))"],
-  ["link with title (the title is not drawn)", '[l](http://x "title") end', "l (http://x) end"],
+  ["link with title (the title is drawn after the destination)", '[l](http://x "title") end', 'l (http://x) ("title") end'],
+  ["link with an apostrophe title", "[l](http://x 'title') end", 'l (http://x) ("title") end'],
+  ["link with a parenthesised title", "[l](http://x (title)) end", 'l (http://x) ("title") end'],
   ["link with blanks around the destination", "[l]( http://x )", "l (http://x)"],
   ["link with angle destination", "[l](<http://x y>)", "l (http://x y)"],
   ["emphasis inside a link label", "[**bold** link](u)", "bold link (u)"],
@@ -95,11 +103,11 @@ describe("inlineMask: what the renderer draws", () => {
     assert.equal(dropped, "****``");
   });
 
-  test("pathological delimiter soup terminates quickly", () => {
+  test("pathological delimiter soup terminates, and masks every character", () => {
     const soup = "*_~".repeat(3000) + " tail";
-    const t0 = performance.now();
-    inlineMask(soup);
-    assert.ok(performance.now() - t0 < 1500);
+    const { value: mask, cpuMs } = cpuTimed(() => inlineMask(soup));
+    assert.equal(mask.length, soup.length);
+    assertCpuWithin("inline: delimiter soup", cpuMs, 1500);
   });
 });
 

@@ -3,22 +3,22 @@
 //   0 drawn as typed
 //   1 hidden
 //   2 drawn as a space (the "]" of a link: Claude Code draws "label (url)")
+//   3 drawn as ") (" (the blanks between a link's destination and its title)
+//   4 drawn as a double quote (the delimiter of a link's title, whichever it was typed as)
 // Hidden: emphasis markers that matched, the backticks of a code span (and one
-// padding space each side), the brackets, bang, title and angle brackets of
-// link and image syntax, autolink brackets, backslash escapes. A link's
-// destination stays visible in parentheses. Everything else stays visible,
-// unmatched markers included ("2 * 3 * 4" is drawn as typed) and "~~x~~" too:
-// the real renderer does not interpret strikethrough (calibration, seed 101).
+// padding space each side), the brackets and bang of link and image syntax,
+// autolink brackets, backslash escapes. A link is drawn "label (dest)" and, with
+// a title, "label (dest) ("title")"; a terminal with hyperlinks draws a link with
+// no title as its label alone, and one with a strikethrough attribute draws the
+// two tildes of "~~x~~" not at all (drawing.ts). Everything else stays visible,
+// unmatched markers included ("2 * 3 * 4", "~x~", "~~ x ~~" are drawn as typed).
 // The delimiter matching follows CommonMark's flanking and rule-of-3
 // behaviour; reference links, HTML and entities are not interpreted.
 
-/**
- * The longest stretch a link destination, its title and the closing paren may
- * span. Real URLs are far shorter; without a bound, every unclosed "](" scans
- * to the end of the paragraph and a long run of them goes quadratic. Past the
- * bound the bracket is just text.
- */
-const LINK_SCAN_LIMIT = 1536;
+import { DEFAULT_DRAWING } from "./drawing.ts";
+import type { Drawing } from "./drawing.ts";
+import { isSpaceCode, parseLinkTail } from "./links.ts";
+import type { LinkParts } from "./links.ts";
 
 interface Delim {
   ch: string;
@@ -37,13 +37,6 @@ interface Bracket {
   delimStart: number;
 }
 
-interface LinkTail {
-  /** Index after the closing paren. */
-  end: number;
-  /** Ranges [from, to) of the tail that are not drawn. */
-  hides: Array<[number, number]>;
-}
-
 const AUTOLINK =
   /<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*|[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)>/y;
 const UNI_PUNCT = /^[\p{P}\p{S}]$/u;
@@ -51,10 +44,6 @@ const UNI_SPACE = /^\s$/;
 
 function isAsciiPunctCode(c: number): boolean {
   return (c >= 33 && c <= 47) || (c >= 58 && c <= 64) || (c >= 91 && c <= 96) || (c >= 123 && c <= 126);
-}
-
-function isSpaceCode(c: number): boolean {
-  return c === 32 || (c >= 9 && c <= 13) || (c > 127 && UNI_SPACE.test(String.fromCharCode(c)));
 }
 
 function isSpaceAt(text: string, i: number): boolean {
@@ -85,10 +74,17 @@ class InlineScanner {
   /** Backtick run length -> position after which no closing run exists (stops quadratic rescans). */
   private readonly noCloserFrom = new Map<number, number>();
 
-  constructor(text: string) {
+  /** End of the strikethrough pair being scanned: no new pair opens inside it. */
+  private delUntil = 0;
+  /** A search for a strikethrough closer from here on found none (stops quadratic rescans). */
+  private noDelFrom = Infinity;
+  private readonly drawing: Drawing;
+
+  constructor(text: string, drawing: Drawing) {
     this.text = text;
     this.n = text.length;
     this.hide = new Uint8Array(text.length);
+    this.drawing = drawing;
   }
 
   scan(): Uint8Array {
@@ -104,6 +100,7 @@ class InlineScanner {
     if (c === "\\") return this.escape(i);
     if (c === "`") return this.codeSpan(i);
     if (c === "*" || c === "_") return this.delimiterRun(c, i);
+    if (c === "~") return this.tildes(i);
     if (c === "[") return this.openBracket(i, false);
     if (c === "!" && this.text[i + 1] === "[") return this.openBracket(i, true);
     if (c === "]") return this.closeBracket(i);
@@ -186,6 +183,7 @@ class InlineScanner {
       if (m === k) {
         this.hideRange(at, at + k);
         this.hideRange(j, j + k);
+        for (let i = at + k; i < j; i++) if (text[i] === "\n") this.hide[i] = 2; // drawn as a space
         this.trimCodePadding(at + k, j);
         return j + k;
       }
@@ -208,70 +206,6 @@ class InlineScanner {
         return;
       }
     }
-  }
-
-  /**
-   * The tail "(dest "title")" starting after the opening paren at `start`:
-   * where the link ends and which ranges are NOT drawn (blanks around the
-   * destination, the angle brackets of "<dest>", the title). The destination
-   * and both parens are drawn. Null when this is not a link tail.
-   */
-  private linkTail(start: number): LinkTail | null {
-    const { text } = this;
-    const end = Math.min(this.n, start + LINK_SCAN_LIMIT);
-    const hides: Array<[number, number]> = [];
-    let p = start;
-    const skipSpace = (): void => {
-      const from = p;
-      while (p < end && isSpaceCode(text.charCodeAt(p))) p++;
-      if (p > from) hides.push([from, p]);
-    };
-    skipSpace();
-    if (text[p] === "<") {
-      const open = p;
-      while (p < end && text[p] !== ">" && text[p] !== "\n") p++;
-      if (p >= end || text[p] !== ">") return null;
-      hides.push([open, open + 1], [p, p + 1]);
-      p++;
-    } else {
-      p = this.bareDestinationEnd(p, end);
-      if (p < 0) return null;
-    }
-    skipSpace();
-    const opener = text[p];
-    if (opener === '"' || opener === "'" || opener === "(") {
-      const closer = opener === "(" ? ")" : opener;
-      const open = p;
-      p++;
-      while (p < end && text[p] !== closer) p += text[p] === "\\" ? 2 : 1;
-      if (p >= end) return null;
-      p++;
-      hides.push([open, p]);
-      skipSpace();
-    }
-    return p < end && text[p] === ")" ? { end: p + 1, hides } : null;
-  }
-
-  /** Where an unbracketed destination starting at `from` stops, or -1 when it runs past `limit`. */
-  private bareDestinationEnd(from: number, limit: number): number {
-    const { text } = this;
-    let p = from;
-    let depth = 0;
-    while (p < limit) {
-      const c = text[p] as string;
-      if (isSpaceCode(text.charCodeAt(p))) return p;
-      if (c === "\\" && p + 1 < limit) {
-        p += 2;
-        continue;
-      }
-      if (c === "(") depth++;
-      else if (c === ")") {
-        if (depth === 0) return p;
-        depth--;
-      }
-      p++;
-    }
-    return p < this.n ? -1 : p;
   }
 
   /** The nearest opener below `closerIndex` that can pair with it, or -1. */
@@ -331,20 +265,90 @@ class InlineScanner {
     const opener = brackets.pop();
     if (opener === undefined || !opener.active || this.text[at + 1] !== "(")
       return at + 1;
-    const tail = this.linkTail(at + 2);
+    const tail = parseLinkTail(this.text, at + 2);
     if (tail === null) return at + 1;
     hide[opener.pos] = 1;
     if (opener.image) hide[opener.pos + 1] = 1;
-    hide[at] = 2; // "]" is drawn as the space before "(": "label (url)"
-    for (const [from, to] of tail.hides) this.hideRange(from, to);
+    this.drawTail(opener, at, tail);
     this.processEmphasis(opener.delimStart);
     for (let k = opener.delimStart; k < delims.length; k++)
       (delims[k] as Delim).dead = true;
     if (!opener.image) for (const b of brackets) if (!b.image) b.active = false;
     return tail.end;
   }
+
+  /**
+   * Which characters of "](dest "title")" are drawn (drawing.ts). Hidden always: blanks
+   * around the destination and its angle brackets, and the "mailto:" of an address.
+   * An image shows its title as typed inside the parentheses.
+   */
+  private drawTail(opener: Bracket, close: number, t: LinkParts): void {
+    const { text, hide } = this;
+    const dest = text.slice(t.dest[0], t.dest[1]);
+    const mailto = /^mailto:/i.test(dest);
+    const label = text.slice(opener.pos + (opener.image ? 2 : 1), close);
+    const repeated = !opener.image && label === dest;
+    const hyperlink = !opener.image && !mailto && t.title === null && this.drawing.links === "label";
+    if (repeated || hyperlink) {
+      this.hideRange(close, t.end);
+      return;
+    }
+    hide[close] = 2; // "]" is drawn as the space before "(": "label (url)"
+    this.hideRange(t.lead[0], t.lead[1]);
+    if (t.angle !== null) {
+      hide[t.angle[0]] = 1;
+      hide[t.angle[1]] = 1;
+    }
+    if (mailto) this.hideRange(t.dest[0], t.dest[0] + 7);
+    if (t.title === null) this.hideRange(t.trail[0], t.trail[1]);
+    else if (!opener.image) this.drawTitle(t.gap, t.title, t.trail);
+  }
+
+  /** `) ("title")`: the blanks close the destination and open the title, whose delimiters become double quotes. */
+  private drawTitle(gap: readonly [number, number], title: readonly [number, number], trail: readonly [number, number]): void {
+    this.hide[gap[0]] = 3;
+    this.hideRange(gap[0] + 1, gap[1]);
+    this.hide[title[0]] = 4;
+    this.hide[title[1]] = 4;
+    this.hideRange(trail[0], trail[1]);
+  }
+
+  /**
+   * A run of tildes. Only when the terminal draws struck text with an attribute does a pair
+   * of double tildes mean anything (the tildes are then not drawn): marked's rule, which reads
+   * a pair as strikethrough when the opener is followed by a non-blank and the closer follows
+   * a non-blank, and not for one or three tildes (probe, Claude Code 2.1.310).
+   */
+  private tildes(i: number): number {
+    const { text } = this;
+    let run = 1;
+    while (text[i + run] === "~") run++;
+    if (this.drawing.strike !== "plain" || run !== 2 || i < this.delUntil) return i + run;
+    const next = text.charCodeAt(i + 2);
+    if (Number.isNaN(next) || isSpaceCode(next)) return i + run;
+    const close = this.delCloser(i);
+    if (close < 0) return i + run;
+    this.hideRange(i, i + 2);
+    this.hideRange(close, close + 2);
+    this.delUntil = close + 2;
+    return i + 2; // the words between are scanned as usual (emphasis, code, links)
+  }
+
+  /** The first double tilde after the opener at `open` that can close it, or -1. */
+  private delCloser(open: number): number {
+    const { text, n } = this;
+    if (open + 3 >= this.noDelFrom) return -1;
+    for (let q = open + 3; q + 1 < n; q++) {
+      if (text[q] !== "~" || text[q + 1] !== "~" || text[q + 2] === "~") continue;
+      const prev = text.charCodeAt(q - 1);
+      const escaped = text[q - 2] === "\\" && q - 2 >= open + 2;
+      if (escaped || (!isSpaceCode(prev) && prev !== 126 && prev !== 92)) return q;
+    }
+    this.noDelFrom = open + 3;
+    return -1;
+  }
 }
 
-export function inlineMask(text: string): Uint8Array {
-  return new InlineScanner(text).scan();
+export function inlineMask(text: string, drawing: Drawing = DEFAULT_DRAWING): Uint8Array {
+  return new InlineScanner(text, drawing).scan();
 }
