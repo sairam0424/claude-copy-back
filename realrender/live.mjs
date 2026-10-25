@@ -4,7 +4,7 @@
 //
 //   node realrender/live.mjs controls --out DIR
 //        Seatbelt positive and negative controls -> DIR/controls.json
-//   node realrender/live.mjs width --width 60 --out DIR --holdout DIR [--results FILE] [--limit N] [--repo PLUGIN_SOURCE]
+//   node realrender/live.mjs width --width 60 --out DIR --holdout DIR [--results FILE] [--limit N] [--repo PLUGIN_SOURCE] [--profile default|warp]
 //        one sealed launch, every planned case -> DIR/w<W>/results.json
 //   node realrender/live.mjs summary --out DIR --clip-before HASH --clip-after HASH
 //        applies the pre-registered rule (version 1) -> DIR/summary.json, prints the verdict
@@ -21,6 +21,10 @@
 //
 // Every stage but `clip` never reads the real clipboard; with version 1 the two
 // hashes come from the operator.
+//
+// --profile default|warp (width, turn, controls, clip) names the terminal the
+// launch pretends to run in (lib/profile.mjs). It is written into every evidence
+// file of the stage, and `summary` refuses launches that ran under different profiles.
 
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -32,8 +36,9 @@ import { requireHoldout } from "./lib/holdout.mjs";
 import { runControlLaunch } from "./lib/live-control.mjs";
 import { LIVE_RULE, applyLiveRule } from "./lib/live-rule.mjs";
 import { LIVE_RULE_2, applyLiveRule2 } from "./lib/live-rule-2.mjs";
+import { parseProfile, profileRecord } from "./lib/profile.mjs";
 import { runWidth } from "./lib/live-run.mjs";
-import { buildSummary, buildSummary2 } from "./lib/live-summary.mjs";
+import { buildSummary, buildSummary2, launchProfile } from "./lib/live-summary.mjs";
 import { moveToTrash } from "./lib/teardown.mjs";
 import { FAMILY_B } from "./lib/templates-b.mjs";
 
@@ -48,6 +53,7 @@ function parse(argv) {
     o[key] = rest[i + 1];
   }
   if (!["controls", "width", "summary", "clip", "turn"].includes(stage) || !o.out) throw new Error("usage: live.mjs controls|width|summary|clip|turn --out DIR ...");
+  o.profile = parseProfile(o.profile);
   return o;
 }
 
@@ -57,7 +63,7 @@ async function stageControls(o) {
   const dir = fs.mkdtempSync("/tmp/cbctl.");
   const result = await runControls({ dir: fs.realpathSync(dir) });
   fs.mkdirSync(o.out, { recursive: true });
-  fs.writeFileSync(path.join(o.out, "controls.json"), `${JSON.stringify(result, null, 1)}\n`);
+  fs.writeFileSync(path.join(o.out, "controls.json"), `${JSON.stringify({ ...profileRecord(o.profile), ...result }, null, 1)}\n`);
   for (const c of result.controls) process.stdout.write(`${c.ok ? "HOLDS " : "BROKEN"} ${c.id}: ${c.what} [${c.detail}]\n`);
   process.stdout.write(`CONTROLS ${result.ok ? "ALL HOLD" : "FAILED"} ${result.failures.join("; ")}\n`);
   process.stdout.write(`scratch ${moveToTrash(dir)}\n`);
@@ -72,7 +78,7 @@ async function stageWidth(o) {
   if (!LIVE_RULE.widths.includes(width)) throw new Error(`width must be one of ${LIVE_RULE.widths}`);
   const records = holdout.records.filter((r) => r.width === width);
   const out = await runWidth({
-    width, corpus, records, evidenceDir: path.resolve(o.out), limit: o.limit ? Number(o.limit) : undefined, repo: o.repo,
+    width, corpus, records, evidenceDir: path.resolve(o.out), limit: o.limit ? Number(o.limit) : undefined, repo: o.repo, profile: o.profile,
     log: (line) => process.stderr.write(`${new Date().toISOString().slice(11, 19)} ${line}\n`),
   });
   const ran = out.cases?.length ?? 0;
@@ -82,13 +88,13 @@ async function stageWidth(o) {
 
 async function stageClip(o) {
   fs.mkdirSync(o.out, { recursive: true });
-  const hash = takeHash({ file: path.join(o.out, "clip-log.jsonl"), label: o.label });
+  const hash = takeHash({ file: path.join(o.out, "clip-log.jsonl"), label: o.label, profile: o.profile });
   process.stdout.write(`${o.label} ${hash}\n`);
 }
 
 async function stageTurn(o) {
   const out = await runControlLaunch({
-    evidenceDir: path.resolve(o.out), repo: o.repo,
+    evidenceDir: path.resolve(o.out), repo: o.repo, profile: o.profile,
     log: (line) => process.stderr.write(`${new Date().toISOString().slice(11, 19)} ${line}\n`),
   });
   const ran = out.cases?.length ?? 0;
@@ -103,19 +109,23 @@ function readLaunches(dir) {
   });
 }
 
-/** The summary and verdict of version 1 (hashes from the operator) or version 2 (hashes from the counted log). */
+/**
+ * The summary and verdict of version 1 (hashes from the operator) or version 2 (hashes from the counted log).
+ * The terminal profile comes from the launches (and the control launch); controls.json records its own
+ * but is not compared: the sandbox controls do not depend on which terminal Claude Code believes it runs in.
+ */
 function judge(o, dir) {
   const launches = readLaunches(dir);
   const controls = JSON.parse(fs.readFileSync(path.join(dir, "controls.json"), "utf8"));
   const classesRequired = FAMILY_B.classes.filter((c) => c !== "table");
   if (o["rule-version"] !== "2") {
-    const summary = buildSummary({ launches, controls, clipboardBefore: o["clip-before"], clipboardAfter: o["clip-after"], classesRequired });
+    const summary = { ...launchProfile(launches), ...buildSummary({ launches, controls, clipboardBefore: o["clip-before"], clipboardAfter: o["clip-after"], classesRequired }) };
     return { summary, verdict: applyLiveRule(summary), ruleFiles: ["live-rule.mjs"] };
   }
   const controlFile = path.join(dir, "control", "results.json");
   const controlLaunch = fs.existsSync(controlFile) ? JSON.parse(fs.readFileSync(controlFile, "utf8")) : null;
   const clip = summarizeReads(readLog(path.join(dir, "clip-log.jsonl")));
-  const summary = buildSummary2({ launches, controls, classesRequired, controlLaunch, clip });
+  const summary = { ...launchProfile([...launches, ...(controlLaunch ? [controlLaunch] : [])]), ...buildSummary2({ launches, controls, classesRequired, controlLaunch, clip }) };
   return { summary, verdict: applyLiveRule2(summary), ruleFiles: ["live-rule.mjs", "live-rule-2.mjs"], rule2: LIVE_RULE_2 };
 }
 

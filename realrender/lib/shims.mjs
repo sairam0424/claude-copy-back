@@ -94,6 +94,23 @@ export function writerCallsSince(dir, from) {
   });
 }
 
+/**
+ * The capture files against the writers' log lines. Every writer call must leave
+ * both: the file under captured/ (the bytes it received) and one line in clip.log
+ * naming it. A file with no line is a write that no case window can attribute; a
+ * line with no file is a lost capture; two lines naming one file mean one write
+ * overwrote another (the file number is taken from the directory listing).
+ */
+export function captureAccounting(dir) {
+  const folder = path.join(dir, "captured");
+  const files = fs.existsSync(folder) ? fs.readdirSync(folder).filter((f) => f.endsWith(".bin")).sort() : [];
+  const logged = lines(path.join(dir, "clip.log")).map((line) => fields(line).file).filter(Boolean);
+  const unlogged = files.filter((f) => !logged.includes(f));
+  const missing = [...new Set(logged.filter((f) => !files.includes(f)))];
+  const duplicated = [...new Set(logged.filter((f, i) => logged.indexOf(f) !== i))];
+  return { files: files.length, loggedLines: logged.length, unlogged, missing, duplicated, ok: unlogged.length + missing.length + duplicated.length === 0 };
+}
+
 /** Decode strictly; null when the bytes are not valid UTF-8. */
 export function strictUtf8(buffer) {
   try {

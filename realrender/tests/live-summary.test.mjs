@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { applyLiveRule } from "../lib/live-rule.mjs";
 import { applyLiveRule2 } from "../lib/live-rule-2.mjs";
-import { buildSummary, buildSummary2, noticeLines, probeSummary } from "../lib/live-summary.mjs";
+import { buildSummary, buildSummary2, launchProfile, noticeLines, probeSummary } from "../lib/live-summary.mjs";
+import { profileRecord } from "../lib/profile.mjs";
 
 const pos = (width, i, over = {}) => ({ id: `w${width}-p${i}`, kind: "positive", width, anchor: `c${i % 3}`, valid: true, exact: true, wrongPayload: false, nonAscii: i === 1, verdict: "complete", writeEvents: 2, ...over });
 const ref = (width, k, over = {}) => ({ id: `w${width}-r${k}`, kind: "refusal", width, valid: true, exact: null, wrongPayload: false, writeEvents: 0, verdict: "prefix", ...over });
@@ -120,5 +121,19 @@ describe("live summary, rule version 2", () => {
   test("the summary feeds rule 2: the probe cases are too few here, so it fails on condition 12 only", () => {
     const v = applyLiveRule2(buildSummary2(input2()));
     assert.deepEqual(v.checks.filter((c) => !c.ok).map((c) => c.n), [12]);
+  });
+});
+
+describe("launchProfile: one pass, one terminal profile", () => {
+  test("launches of one profile give its record", () => {
+    assert.deepEqual(launchProfile([{ profile: "warp" }, { profile: "warp" }]), profileRecord("warp"));
+  });
+
+  test("evidence from before profiles existed counts as default", () => {
+    assert.deepEqual(launchProfile([{}, { profile: "default" }]), { profile: "default", added: [] });
+  });
+
+  test("mixed profiles in one pass are refused, naming both", () => {
+    assert.throws(() => launchProfile([{ profile: "warp" }, { profile: "default" }]), /one terminal profile.*warp.*default/);
   });
 });

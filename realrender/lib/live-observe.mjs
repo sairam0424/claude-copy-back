@@ -4,7 +4,7 @@
 
 import fs from "node:fs";
 import { findOsc52 } from "./osc52.mjs";
-import { logLength, pbpasteCallsSince, writerCallsSince } from "./shims.mjs";
+import { captureAccounting, logLength, pbpasteCallsSince, writerCallsSince } from "./shims.mjs";
 import { readStubLog } from "./stubproc.mjs";
 import { extractToasts, hasToast } from "./toast.mjs";
 import { LIVE_RULE } from "./live-rule.mjs";
@@ -104,6 +104,35 @@ export async function settleWrites(ctx, mark, { collect = collectSince, maxPolls
 export function reconcileWrites(shimCalls, cases) {
   const attributed = cases.reduce((n, c) => n + (c.writerCalls?.length ?? 0), 0);
   return { shimCalls, attributed, unattributed: Math.max(0, shimCalls - attributed) };
+}
+
+const ACCOUNT_POLL_MS = 400;
+const ACCOUNT_MAX_POLLS = 6;
+
+/**
+ * The capture files against the log lines at the end of a launch (shims.mjs
+ * captureAccounting). A writer shim that was ended right after its write may log a
+ * moment late, so an unbalanced account is looked at again up to `maxPolls` times,
+ * 400 ms apart; whatever is still unbalanced after that is reported and fails the launch.
+ */
+export async function settleCaptureAccounting(ctx, { account = () => captureAccounting(ctx.shimDir), maxPolls = ACCOUNT_MAX_POLLS } = {}) {
+  let last = account();
+  for (let polls = 1; !last.ok && polls < maxPolls; polls += 1) {
+    await ctx.watch.wait(ACCOUNT_POLL_MS);
+    last = account();
+  }
+  return last;
+}
+
+/** The sentence that fails a launch whose capture files and log lines do not balance, or null when they do. */
+export function captureAccountError(account) {
+  if (account.ok) return null;
+  const parts = [
+    account.unlogged.length ? `capture files without a log line: ${account.unlogged.join(", ")}` : "",
+    account.missing.length ? `log lines without a capture file: ${account.missing.join(", ")}` : "",
+    account.duplicated.length ? `capture files named by two log lines (a write was overwritten): ${account.duplicated.join(", ")}` : "",
+  ];
+  return parts.filter(Boolean).join("; ");
 }
 
 /** Wait until the screen is idle (no toast, no spinner, empty prompt); clears typed text if it stays. Returns the reason. */

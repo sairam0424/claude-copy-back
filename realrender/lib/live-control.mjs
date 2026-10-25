@@ -15,8 +15,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { canaryHits, runCase } from "./live-run.mjs";
-import { BUSY_TEXT, reconcileWrites, takeMark, waitIdle } from "./live-observe.mjs";
+import { BUSY_TEXT, captureAccountError, reconcileWrites, settleCaptureAccounting, takeMark, waitIdle } from "./live-observe.mjs";
 import { closeSession, openSession, stubRequests, waitDrawn } from "./live-session.mjs";
+import { profileRecord } from "./profile.mjs";
 import { logLength } from "./shims.mjs";
 import { summarize } from "./netproof.mjs";
 import { unicodeClasses } from "./unicode-classes.mjs";
@@ -109,8 +110,8 @@ async function submitPrompt(ctx) {
 /** The whole control launch. Writes DIR/control/results.json. */
 export async function runControlLaunch(o) {
   const log = o.log ?? (() => {});
-  const ctx = await openSession({ width: PROBE_WIDTH, height: 50, turns: probeTurns(), sentinel: PROBE_MARKER, claude: o.claude, repo: o.repo });
-  const out = { width: PROBE_WIDTH, drawn: false, error: null };
+  const ctx = await openSession({ width: PROBE_WIDTH, height: 50, turns: probeTurns(), sentinel: PROBE_MARKER, claude: o.claude, repo: o.repo, profile: o.profile });
+  const out = { width: PROBE_WIDTH, ...profileRecord(o.profile), drawn: false, error: null };
   try {
     out.drawn = await waitDrawn(ctx, PROBE_MARKER, 120_000);
     if (!out.drawn) throw new Error("the session was not drawn");
@@ -133,6 +134,8 @@ export async function runControlLaunch(o) {
     out.control = judgeControl({ afterCc: out.afterCc, afterPrompt: prompt.lines });
     log(`positive control: ${out.control.detail}`);
     out.writes = reconcileWrites(logLength(ctx.shimDir, "clip"), out.cases);
+    out.captureFiles = await settleCaptureAccounting(ctx);
+    out.error = captureAccountError(out.captureFiles) ?? out.error;
     out.network = summarize(ctx.watch.samples);
     out.canaryHits = canaryHits(ctx.sandbox.dir);
   } catch (error) {
