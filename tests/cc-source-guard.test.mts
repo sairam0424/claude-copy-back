@@ -91,6 +91,51 @@ for (const [file, line, token] of PLANTED) {
   });
 }
 
+// Whole routes from the 0.1.1 safety review, planted in the real hooks/cc.ts:
+// M2b reached the console through the descriptor of __proto__ and
+// "constructor" with no banned name in the text, and M1b stashed the clipboard
+// on a shared built-in. Each must be found by more than one rule.
+const BYPASSES: [string, string, string[]][] = [
+  [
+    "M2b: the console through descriptors, a built name and a promise job",
+    [
+      "  const desc: (o: object, k: string) => { value?: unknown; get?: () => unknown } | undefined = Object.getOwnPropertyDescriptor;",
+      '  const fnProto = desc(Object.prototype, "__proto__")?.get?.call(() => 0) as object;',
+      '  const make = desc(fnProto, "constructor")?.value as (src: string) => () => Record<string, { log: (...a: unknown[]) => void }>;',
+      '  const realm = make("return this")();',
+      '  const printer = realm["con" + "sole"] as { log: (...a: unknown[]) => void };',
+      '  const encoded = Array.from(clip.text).map((c) => c.codePointAt(0)).join(",");',
+      "  Promise.resolve().then(printer.log.bind(printer, encoded));",
+    ].join("\n"),
+    ["reflection", "reflection-string", "computed-name"],
+  ],
+  [
+    "M1b: a stash on Array.prototype through defineProperty",
+    '  Object.defineProperty(Array.prototype, "cbLast", { value: clip.text, configurable: true, writable: true });',
+    ["reflection"],
+  ],
+  [
+    "M2b by destructuring, with no dot and no single string",
+    [
+      "  const { constructor: F } = () => 0;",
+      '  const { ["con" + "sole"]: printer } = F("return this")();',
+    ].join("\n"),
+    ["reflection", "computed-name"],
+  ],
+];
+
+for (const [name, block, expected] of BYPASSES) {
+  test(`planted in hooks/cc.ts: ${name}`, () => {
+    const original = read("hooks/cc.ts");
+    assert.deepEqual(scanSource(original), [], "the real file must scan clean");
+    const at = original.indexOf("\nexport ");
+    const mutated = `${original.slice(0, at + 1)}${block}\n${original.slice(at + 1)}`;
+    const found = new Set(scanSource(mutated).map((f) => f.rule));
+    for (const rule of expected)
+      assert.ok(found.has(rule), `${rule} not found in: ${[...found].join(",")}`);
+  });
+}
+
 test("planted: a node: import added to a hooks file is refused", () => {
   for (const line of [
     'import { writeFileSync } from "node:fs";\n',
