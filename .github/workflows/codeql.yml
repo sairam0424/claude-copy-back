@@ -1,0 +1,77 @@
+# CodeQL code scanning for copy-back (advanced setup).
+#
+# What it reads: the JavaScript and TypeScript sources (build-mode none, no
+# build step) and the workflow files themselves (the `actions` language), on
+# every pull request to main, every push to main and once a week. Results go to
+# the Security tab (code scanning). It is not a required check: ci.yml's ci-ok is
+# the gate, and no ruleset references this workflow.
+#
+# GitHub's default CodeQL setup is not configured for this repository (checked
+# with `gh api repos/sairam0424/claude-copy-back/code-scanning/default-setup`:
+# state "not-configured"), so this file does not conflict with it. Do not switch
+# the default setup on as well: GitHub documents that enabling it disables existing
+# CodeQL workflows and blocks their SARIF uploads, so this file would stop producing
+# results.
+#
+# Hardening is the same as ci.yml (tests/workflows.test.mts pins it): the
+# workflow-level token is read-only, the one job that needs `security-events:
+# write` (to upload results) asks for it by name, no secrets, actions pinned to
+# full commit SHAs with their version beside them (verified with `gh api` on
+# 2026-10-26; Dependabot keeps both current), persist-credentials off, and a
+# timeout. A pull request from a fork runs with a read-only token and no secrets, and
+# with build-mode none no code from the pull request is run.
+#
+# Scheduled workflows run only from the default branch and GitHub pauses them
+# after 60 days without repository activity; workflow_dispatch starts one by
+# hand.
+
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 2" # Tuesday 04:17 UTC, once a week
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # upload the results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript", "actions"]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: "/language:${{ matrix.language }}"

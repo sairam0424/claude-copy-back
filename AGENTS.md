@@ -17,7 +17,7 @@ claude plugin validate . --strict
 actionlint .github/workflows/*.yml
 npm run test:rig                 # rig unit tests (macOS)
 ```
-`claude plugin test .` at the root runs the 87 kit tests: `node:test` files are `*.test.mts` (`tests/kit-layout.test.mts` guards it). Node 22.19+, engine 2.1.299+. Timing tests assert CPU time (`tests/timing.ts`); `CB_TEST_TIME_FACTOR=3` relaxes them. CI: Linux on every pull request, macOS after a merge, `ci-ok` the one check to require, `engine-drift.yml` weekly.
+`claude plugin test .` at the root runs the 87 kit tests: `node:test` files are `*.test.mts` (`tests/kit-layout.test.mts` guards it). Node 22.19+, engine 2.1.299+. Timing tests assert CPU time (`tests/timing.ts`); `CB_TEST_TIME_FACTOR=3` relaxes them. CI: Linux and macOS on every pull request; `ci-ok` is the one check to require; `engine-drift.yml` weekly; CodeQL and Scorecard are not required.
 
 ## Rules
 - Engine: `$` goes only into top-level function declarations. An engine call spelled outside `api.ts` and `register.tsx`, comments included, fails the footprint gate. The hook never reads `next`. No timers, state, store, files or network.

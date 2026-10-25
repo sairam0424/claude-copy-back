@@ -16,7 +16,7 @@
 Tick what applies to the files you touched, and paste nothing but the pass or fail line.
 
 - [ ] `node --test --test-concurrency=1 "tests/*.test.mts"`
-- [ ] `node --test --test-concurrency=1 "realrender/tests/*.test.mjs"` (if `realrender/` changed; macOS; CI runs it only after a merge to `main`)
+- [ ] `node --test --test-concurrency=1 "realrender/tests/*.test.mjs"` (if `realrender/` changed; macOS; CI runs it on macOS for every pull request)
 - [ ] `node scripts/check-sources.mjs`
 - [ ] `claude plugin validate . --strict`
 - [ ] `bash scripts/check-footprint.sh`
