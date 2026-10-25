@@ -8,9 +8,9 @@ export function mangleCwd(cwd) {
   return cwd.replace(/[^A-Za-z0-9]/g, "-");
 }
 
-/** A UUID-shaped id derived from a seed string (stable across runs). */
+/** A UUID-shaped id derived from a seed string (stable across runs; an identifier, not a secret). */
 export function derivedUuid(seed) {
-  const h = createHash("sha1").update(seed).digest("hex");
+  const h = createHash("sha256").update(seed).digest("hex");
   return [
     h.slice(0, 8),
     h.slice(8, 12),
