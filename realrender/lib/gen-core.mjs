@@ -89,9 +89,9 @@ export class Doc {
   }
 }
 
-/** Where an inline feature sits. A soft wrap in the source may have turned a space into a line break (and list indentation). */
+/** Where an inline feature sits. A soft wrap in the source may have turned a space into a line break (and list indentation or quote markers). */
 function locateOnce(text, needle, kind) {
-  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "[ \\n]+ *");
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "(?: |\\n[ >]*)+");
   const hits = [...text.matchAll(new RegExp(escaped, "g"))];
   if (hits.length !== 1) throw new Error(`feature text found ${hits.length} times: ${needle}`);
   const from = hits[0].index;

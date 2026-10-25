@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildClaudeJson, buildSettings, sealedEnv } from "./config.mjs";
 import { buildLauncher } from "./launcher.mjs";
+import { profileEnv } from "./profile.mjs";
 import { SANDBOX_EXEC, buildProfile, sandboxArgs } from "./seatbelt.mjs";
 import { writeShims } from "./shims.mjs";
 import { buildSession, mangleCwd } from "./session.mjs";
@@ -18,9 +19,9 @@ import { TMUX_CONF } from "./tmux.mjs";
 /** The parts of the repository that make up the plugin. */
 export const PLUGIN_PARTS = [".claude-plugin", "hooks", "src"];
 
-/** The sealed environment with the shim directory first on PATH. */
-export function liveEnv({ home, port, tmpdir, shimDir }) {
-  return sealedEnv({ home, port, tmpdir }).map(([key, value]) =>
+/** The sealed environment (plus the terminal profile's variables) with the shim directory first on PATH. */
+export function liveEnv({ home, port, tmpdir, shimDir, profile = "default" }) {
+  return sealedEnv({ home, port, tmpdir, extra: profileEnv(profile) }).map(([key, value]) =>
     key === "PATH" ? [key, `${shimDir}:${value}`] : [key, value],
   );
 }
@@ -83,6 +84,7 @@ function write(file, text, mode = 0o600) {
  * @param {Array<{role:string,text:string}>} o.turns
  * @param {string} o.repo the folder the plugin is copied from (the copy-back repository root)
  * @param {string[]} [o.parts] the sub-folders to copy (default: the plugin parts)
+ * @param {string} [o.profile] terminal profile (profile.mjs), default "default"
  * @param {string} [o.realHome]
  */
 export function writeLiveFixtures(o) {
@@ -99,7 +101,7 @@ export function writeLiveFixtures(o) {
   writeShims(shimDir);
   const plugin = copyPlugin(o.repo, pluginDir, o.parts);
   write(profilePath, buildProfile(protectedPaths(o.realHome ?? os.homedir())));
-  const env = liveEnv({ home: s.home, port: o.port, tmpdir: s.tmp, shimDir });
+  const env = liveEnv({ home: s.home, port: o.port, tmpdir: s.tmp, shimDir, profile: o.profile });
   const script = buildLauncher({
     pidFile: s.pidFile, cwd: s.work, env, claude: SANDBOX_EXEC,
     args: sandboxArgs(profilePath, [o.claude, "--resume", o.sessionId, "--plugin-dir", pluginDir]),

@@ -2,9 +2,9 @@
 // Build a NEW case set for a live pass and write it where `live.mjs width
 // --holdout DIR` reads it.
 //
-//   node realrender/gen-live-set.mjs --seed 7331 --out DIR
+//   node realrender/gen-live-set.mjs --seed 7331 --out DIR [--family B|C]
 //
-// Writes DIR/corpus.json (40 synthetic assistant messages, family B) and
+// Writes DIR/corpus.json (40 synthetic assistant messages, family B unless --family C) and
 // DIR/results-holdout.json (40 spans per width at 60, 80, 100 and 120), and
 // prints one JSON line: the seed, the counts per construct class, what the
 // PAYLOADS hold (non-ASCII, em dash, joined emoji, CJK, accents, astral), and
@@ -13,6 +13,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { buildLiveSet, payloadCoverage, sha256 } from "./lib/live-set.mjs";
+import { FAMILY_B } from "./lib/templates-b.mjs";
+import { FAMILY_C } from "./lib/templates-c.mjs";
+
+const FAMILIES = { B: FAMILY_B, C: FAMILY_C };
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -22,10 +26,15 @@ const flag = (name) => {
 const seed = Number(flag("seed"));
 const out = flag("out");
 if (!Number.isInteger(seed) || !out) {
-  process.stderr.write("usage: gen-live-set.mjs --seed N --out DIR\n");
+  process.stderr.write("usage: gen-live-set.mjs --seed N --out DIR [--family B|C]\n");
   process.exit(2);
 }
-const { corpus, results } = buildLiveSet({ seed });
+const family = FAMILIES[flag("family") ?? "B"];
+if (family === undefined) {
+  process.stderr.write("usage: gen-live-set.mjs --seed N --out DIR [--family B|C]\n");
+  process.exit(2);
+}
+const { corpus, results } = buildLiveSet({ seed, family });
 fs.mkdirSync(out, { recursive: true });
 const corpusFile = path.join(out, "corpus.json");
 const resultsFile = path.join(out, "results-holdout.json");

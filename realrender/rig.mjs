@@ -6,6 +6,7 @@
 //   node realrender/rig.mjs --out DIR [--label NAME] [--mode default|fullscreen|classic]
 //        [--width 100] [--height 300] [--resize 60,80,120] [--settle-ms 1500]
 //        [--idle-ms 10000] [--drop theme,trust,...] [--env KEY=VALUE]... [--keep]
+//        [--profile default|warp]   warp adds TERM_PROGRAM=WarpTerminal, a Warp version, COLORTERM=truecolor
 //
 // Exit 0 when the conversation was drawn and no non-loopback socket was seen;
 // 3 when it was drawn but a non-loopback socket WAS seen (rig not sealed);
@@ -14,11 +15,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DROPPABLE, MODES } from "./lib/config.mjs";
+import { parseProfile } from "./lib/profile.mjs";
 import { runRig } from "./lib/run.mjs";
 
 const FLAGS = new Set([
   "out", "label", "mode", "width", "height", "resize", "settle-ms", "idle-ms",
-  "startup-ms", "draw-timeout-ms", "sample-ms", "drop", "env", "claude", "keep",
+  "startup-ms", "draw-timeout-ms", "sample-ms", "drop", "env", "claude", "keep", "profile",
 ]);
 
 function usage(message) {
@@ -56,7 +58,7 @@ export function toOptions(raw) {
   });
   const num = (key, fallback) => (raw[key] === undefined ? fallback : Number(raw[key]));
   return {
-    mode, drop, extraEnv, claude: raw.claude, keep: Boolean(raw.keep),
+    mode, drop, extraEnv, claude: raw.claude, keep: Boolean(raw.keep), profile: parseProfile(raw.profile),
     out: raw.out ? path.resolve(raw.out) : null,
     label: raw.label ?? `${mode}-w${num("width", 100)}`,
     width: num("width", 100), height: num("height", 300),
