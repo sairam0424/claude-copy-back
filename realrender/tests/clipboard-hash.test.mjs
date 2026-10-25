@@ -24,7 +24,7 @@ describe("the real-clipboard hash reads (the rule allows exactly two)", () => {
     assert.equal(takeHash({ file, label: "after", exec: fakeExec(`${HASH_B}  -\n`), now: at }), HASH_B);
     const text = fs.readFileSync(file, "utf8");
     assert.deepEqual(summarizeReads(readLog(file)), { reads: 2, before: HASH_A, after: HASH_B, failed: 0 });
-    assert.ok(!/[^0-9a-f"{}:,\-TZ.\w\s]/.test(text), "only hashes, labels and times");
+    assert.ok(!/[^"{}:,\-.\w\s]/.test(text), "only hashes, labels and times");
   });
 
   test("a third read is refused before anything is run", () => {

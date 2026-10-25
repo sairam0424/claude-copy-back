@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The macOS jobs run on every pull request, not only after a merge to `main`, now that the repository is public and the runners are free. `ci-ok` therefore requires every job, `tests-macos` included, to have succeeded on every event; a skip of any job fails it. `tests/workflows.test.mts` runs the new rule and allows `security-events: write` only on the CodeQL and Scorecard jobs.
 - `SECURITY.md` names private vulnerability reporting as the first route now that it is switched on; the README no longer carries the install note for a private repository; the release steps in `docs/DEVELOPMENT.md` describe the protected `main` (pull request, squash merge, tag, then push the tag).
 
+### Fixed
+- Three CodeQL findings in the test rig, none in the shipped plugin: the rig derives its synthetic session ids with SHA-256 instead of SHA-1 (an identifier, not a secret, but the scanner flags the algorithm), and one test regex no longer repeats ranges that `\w` already covers.
+
 ## [0.1.1] - 2026-10-25
 
 The matcher now models how Claude Code draws links and struck text in the terminals that draw them label-only (Warp, and by a static read many others) as well as in the default drawing, the toast is shorter, the tests no longer depend on the clock, and CI is leaner and watches new Claude Code versions. Still experimental and macOS only. Checked by unit tests, engine tests, the sealed capture rig and a counted sealed live pass of `/cc` itself on Claude Code 2.1.310 (reported; see Known limitations for what it does not show).
