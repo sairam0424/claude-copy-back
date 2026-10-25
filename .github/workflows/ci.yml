@@ -5,28 +5,51 @@
 # full commit SHA with its version in a trailing comment (Dependabot keeps both
 # current), persist-credentials off, a timeout on every job, and no ${{ }}
 # expression inside a run: block (values reach the shell through env: only).
+# tests/workflows.test.mts pins these rules; `actionlint` checks the syntax.
 #
 # What runs where, and why:
-#   tests         hermetic Node suites on Linux and macOS, Node 22.19.0 (the
-#                 floor in package.json) and 24.x, plus Node 26.x on Linux
-#                 only (the matrix include below). `engines` is open-ended,
-#                 Node 26 is what the maintainer develops on and ran the live
-#                 pass with, and it becomes LTS on 2026-10-28, so it has to be
-#                 covered; Linux only keeps the macOS minutes down. Serial on
-#                 purpose: tests/budget.test.ts and six more files assert
-#                 wall-clock bounds and fail when several suites share a
-#                 loaded machine; with --test-concurrency=1 they pass. The
-#                 "tests/*.test.ts" glob is quoted because
+#   tests         hermetic Node suites on Linux for every pull request, push and
+#                 manual run: Node 22.19.0 (the floor in package.json), 24.x and
+#                 26.x. `engines` is open-ended and Node 26 is what the
+#                 maintainer develops on (LTS from 2026-10-28), so it is covered.
+#                 Serial on purpose: tests/budget.test.mts and seven more files
+#                 bound the CPU time of pathological inputs (tests/timing.ts;
+#                 set CB_TEST_TIME_FACTOR to relax the bounds on a slow machine)
+#                 and serial keeps the log readable. The node:test files are
+#                 *.test.mts so that `claude plugin test .` at the root, which
+#                 loads every *.test.ts and *.test.tsx, sees only the kit
+#                 tests. The "tests/*.test.mts" glob is quoted because
 #                 `node --test tests/` (a directory) does not work on Node 22.
 #                 No test here starts tmux, sandbox-exec, the real renderer,
 #                 the engine or the clipboard.
+#   tests-macos   the same suites plus the rig's unit tests, on macOS, on
+#                 pushes to main and on manual runs only, NOT on pull requests.
+#                 Why: of the rig's unit tests only realrender/tests/stub.test.mjs
+#                 needs macOS (Homebrew's python3 and /usr/sbin/lsof); the rest
+#                 use fakes. A pull request that touches realrender/ runs
+#                 `npm run test:rig` locally (the PR template asks) or starts
+#                 this workflow by hand on its branch; the merge to main runs
+#                 it again. Cost: GitHub bills macOS minutes at ten times Linux
+#                 on a private repo (2,000 included minutes a month on Free);
+#                 standard runners are free on a public repo. The first run on
+#                 main took 18 and 25 seconds per macOS job, so about two billed
+#                 minutes (20 included-minute equivalents) per push, and seven
+#                 Linux minutes. Billing rounds each job up to a whole minute.
 #   shellcheck    scripts/*.sh (the runner image ships shellcheck).
 #   source-guard  scripts/check-sources.mjs, the token scan of hooks/ and
 #                 src/core/. It needs only Node.
-#   engine        claude plugin validate --strict, the footprint gate and the
-#                 kit tests on a pinned Claude Code (the engine floor and the
-#                 version the mod was developed on). No API key, no login, no
-#                 model call: none of these three talks to a model.
+#   engine        claude plugin validate --strict, the footprint gate, the kit
+#                 tests and `claude plugin test .` on pinned Claude Code
+#                 versions: the engine floor and the version the 0.1.1 matcher
+#                 was calibrated on. No API key, no login, no model call: none
+#                 of these talks to a model. engine-drift.yml runs the same
+#                 gates weekly against the newest published version.
+#   ci-ok         one check that a ruleset can require. It runs even when a job
+#                 fails or is cancelled (if: always()) and passes only when
+#                 every job above finished as expected: success, except
+#                 tests-macos, which must be skipped on a pull request and
+#                 green otherwise. A skipped job on a branch rule counts as
+#                 passed, so this job refuses an unexpected skip as well.
 #
 # Not run in CI:
 #   scripts/typecheck.sh  It checks against claude-code.d.ts, which the engine
@@ -37,10 +60,6 @@
 #                 stays a local gate (npm run typecheck).
 #   The sealed rig and live pass (tmux, sandbox-exec, a real Claude Code
 #                 session): they run on the author's Mac only.
-#
-# Cost note: GitHub bills macOS minutes at ten times Linux on a private repo
-# (2,000 included minutes a month on the Free plan); standard runners are free
-# on a public repo.
 
 name: ci
 
@@ -63,18 +82,13 @@ defaults:
 
 jobs:
   tests:
-    name: tests (${{ matrix.os }}, node ${{ matrix.node }})
-    runs-on: ${{ matrix.os }}
+    name: tests (ubuntu-latest, node ${{ matrix.node }})
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        node: ["22.19.0", "24.x"]
-        include:
-          # One extra leg, not a new column: Node 26 on Linux only.
-          - os: ubuntu-latest
-            node: "26.x"
+        node: ["22.19.0", "24.x", "26.x"]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,7 +105,38 @@ jobs:
         run: node --version
 
       - name: Unit tests
-        run: node --test --test-concurrency=1 "tests/*.test.ts"
+        run: node --test --test-concurrency=1 "tests/*.test.mts"
+
+      - name: Replay self-test
+        run: node scripts/replay.mjs --selftest
+
+  tests-macos:
+    name: tests (macos-latest, node ${{ matrix.node }})
+    # Not on pull requests: see the header. A push to main and a manual run get it.
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.19.0", "24.x"]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: Show versions
+        run: node --version
+
+      - name: Unit tests
+        run: node --test --test-concurrency=1 "tests/*.test.mts"
 
       - name: Replay self-test
         run: node scripts/replay.mjs --selftest
@@ -99,8 +144,7 @@ jobs:
       # The rig's unit tests use fakes for tmux and sandbox-exec. One file
       # (stub.test.mjs) starts a loopback Python stub from the Homebrew path
       # and samples sockets with the macOS lsof, so they run on macOS only.
-      - name: Rig unit tests (macOS only)
-        if: runner.os == 'macOS'
+      - name: Rig unit tests
         run: node --test --test-concurrency=1 "realrender/tests/*.test.mjs"
 
   shellcheck:
@@ -145,10 +189,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 2.1.299 is the engine floor (AGENTS.md); 2.1.309 is the version the
-        # mod was developed and calibrated on. Both are exact pins: change them
-        # on purpose, Dependabot does not touch an npx argument.
-        claude: ["2.1.299", "2.1.309"]
+        # 2.1.299 is the engine floor (AGENTS.md); 2.1.310 is the version the
+        # 0.1.1 matcher was calibrated on. Both are exact pins: change them on
+        # purpose, Dependabot does not touch an npx argument. The newest
+        # published version is engine-drift.yml's job.
+        claude: ["2.1.299", "2.1.310"]
     env:
       CLAUDE_VERSION: ${{ matrix.claude }}
       DISABLE_AUTOUPDATER: "1"
@@ -183,3 +228,40 @@ jobs:
 
       - name: Kit tests
         run: CB_CLAUDE="npx --yes @anthropic-ai/claude-code@${CLAUDE_VERSION}" bash scripts/kit-test.sh
+
+      # The engine's own runner at the repository root: it loads every
+      # *.test.ts and *.test.tsx, so this proves the layout rule that
+      # tests/kit-layout.test.mts guards (the node:test files are *.test.mts).
+      # It runs last because the engine writes type files into a folder it loads.
+      - name: Kit tests through the engine's own runner
+        run: npx --yes "@anthropic-ai/claude-code@${CLAUDE_VERSION}" plugin test .
+
+  ci-ok:
+    name: ci-ok
+    needs: [tests, tests-macos, shellcheck, source-guard, engine]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NEEDS_JSON: ${{ toJSON(needs) }}
+    steps:
+      - name: Require every job to have finished as expected
+        run: |
+          # GITHUB_EVENT_NAME is set by the runner. On a pull request the macOS
+          # job must have been skipped; everywhere else every job must be green.
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then mac_expected=skipped; else mac_expected=success; fi
+          count="$(jq 'length' <<<"${NEEDS_JSON}")"
+          if [ "${count}" -lt 1 ]; then
+            echo "::error title=ci-ok::no job results to check"
+            exit 1
+          fi
+          unexpected="$(jq -r --arg mac "${mac_expected}" '
+            to_entries[]
+            | select(.value.result != (if .key == "tests-macos" then $mac else "success" end))
+            | "\(.key): \(.value.result)"' <<<"${NEEDS_JSON}")"
+          if [ -n "${unexpected}" ]; then
+            echo "::error title=ci-ok::a job did not finish as expected"
+            printf '%s\n' "${unexpected}" >&2
+            exit 1
+          fi
+          echo "${count} jobs finished as expected (tests-macos expected: ${mac_expected})"

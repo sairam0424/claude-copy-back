@@ -66,3 +66,19 @@ export function compareIndentation(copy: string, shown: string): IndentFit {
   }
   return { conflict: false, shift };
 }
+
+/**
+ * Does the message draw a line break where the copy has none? Claude Code ends every
+ * row itself and draws a source line break as a row break, so a copy that spans rows has
+ * a newline wherever the message it came from has one; the copy may have MORE (a wrap at
+ * the screen width). A copy with no newline at all says nothing about breaks, and texts
+ * that do not split into the same words (a row split inside a token) cannot be compared.
+ * Used by the matcher to tell apart candidates with the same words and different breaks.
+ */
+export function breakConflict(copy: string, shown: string): boolean {
+  if (!copy.includes("\n")) return false;
+  const mine = gapsOf(copy);
+  const theirs = gapsOf(shown);
+  if (mine.length !== theirs.length) return false;
+  return theirs.some((gap, i) => gap.includes("\n") && !(mine[i] as string).includes("\n"));
+}

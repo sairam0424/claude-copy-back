@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import {
   MAX_HITS_PER_MESSAGE,
   MAX_HITS_TOTAL,
+  NATIVE_WORK,
   findAll,
   newMeter,
   newNeedle,
 } from "../src/core/search.ts";
+import { assertCpuWithin, cpuTimed } from "./timing.ts";
 
 // The bounded substring search under the matcher: the same answer as
 // String.prototype.indexOf looped over every (overlapping) start, but with a
@@ -127,12 +129,17 @@ test("a hit that would pass a limit leaves the meter as it was or lower, never n
   assert.ok(meter.hits >= 0 && meter.work >= 0 && meter.native >= 0);
 });
 
-test("a mismatch in the middle of long repetitive text is answered fast (the native search alone takes seconds)", () => {
+test("a mismatch in the middle of long repetitive text goes to the linear search (the native search alone takes seconds)", () => {
   const hay = "a".repeat(300_000);
   const needle = `${"a".repeat(5000)}b${"a".repeat(5000)}`;
-  const start = Date.now();
-  assert.deepEqual(findAll(hay, newNeedle(needle), newMeter()), []);
-  assert.ok(Date.now() - start < 1500, `took ${Date.now() - start} ms`);
+  const meter = newMeter();
+  const { value, cpuMs } = cpuTimed(() =>
+    findAll(hay, newNeedle(needle), meter),
+  );
+  assert.deepEqual(value, []);
+  // The fact that matters: the engine's own search was never asked.
+  assert.equal(meter.native, NATIVE_WORK);
+  assertCpuWithin("search: mismatch in the middle", cpuMs, 1500);
 });
 
 test("the failure table of a needle is built once and reused for the next text", () => {

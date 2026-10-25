@@ -1,6 +1,7 @@
 // From the per-width results of the live pass to the rule's input. Pure.
 
 import { LIVE_RULE } from "./live-rule.mjs";
+import { profileRecord } from "./profile.mjs";
 
 const NOTICE = /(hook was skipped|module did not load|failed to load|did not load|was skipped)/i;
 
@@ -24,6 +25,20 @@ export function unicodeCoverage(cases) {
   return counts;
 }
 
+/** The cases that needed a second attempt, with what the first attempt showed (reported, never hidden). */
+export function retriedCases(launches) {
+  return launches.flatMap((l) => (l.cases ?? []).filter((c) => c.retried).map((c) => ({
+    id: c.id, firstAttemptToasts: c.firstAttempt?.toasts ?? [], firstAttemptWriteEvents: c.firstAttempt?.writeEvents ?? 0,
+  })));
+}
+
+/** The launches whose capture files and log lines did not balance, one entry each. */
+export function accountProblems(launches) {
+  return launches.filter((l) => l.captureFiles && !l.captureFiles.ok).map((l) => ({
+    width: l.width, unlogged: l.captureFiles.unlogged, missing: l.captureFiles.missing, duplicated: l.captureFiles.duplicated,
+  }));
+}
+
 /** Totals over every launch: stub requests, sockets, records, canary, notices. */
 function launchTotals(launches) {
   const sum = (pick) => launches.reduce((n, l) => n + pick(l), 0);
@@ -36,6 +51,9 @@ function launchTotals(launches) {
     unattributedWrites: sum((l) => l.writes?.unattributed ?? 0),
     canaryLeaks: sum((l) => (l.canaryHits?.length ?? 0) + (l.canaryOnScreen ? 1 : 0)),
     loadNotices: sum((l) => (l.noticeHits?.length ?? 0)),
+    unloggedCaptureFiles: sum((l) => l.captureFiles?.unlogged?.length ?? 0),
+    captureAccountProblems: accountProblems(launches),
+    retriedCases: retriedCases(launches),
   };
 }
 
@@ -107,8 +125,12 @@ export function buildSummary2({ controlLaunch, clip, ...rest }) {
   const base = buildSummary({ ...rest, clipboardBefore: clip.before, clipboardAfter: clip.after });
   const blocked = controlLaunch && (controlLaunch.error || !controlLaunch.drawn);
   const unattributedWrites = base.unattributedWrites + (controlLaunch?.writes?.unattributed ?? 0);
+  const controlProblems = controlLaunch ? accountProblems([{ ...controlLaunch, width: "control" }]) : [];
   return {
     ...base,
+    unloggedCaptureFiles: base.unloggedCaptureFiles + (controlLaunch?.captureFiles?.unlogged?.length ?? 0),
+    captureAccountProblems: [...base.captureAccountProblems, ...controlProblems],
+    retriedCases: [...base.retriedCases, ...retriedCases(controlLaunch ? [controlLaunch] : [])],
     // A writer call no case was given was made where nobody judged it: it counts as a wrong payload.
     wrongPayloadsJudged: base.wrongPayloads,
     unattributedWrites,
@@ -119,4 +141,15 @@ export function buildSummary2({ controlLaunch, clip, ...rest }) {
     control: controlLaunch?.control ?? null,
     probe: controlLaunch ? probeSummary(controlLaunch) : null,
   };
+}
+
+/**
+ * The terminal profile every piece of evidence of a pass ran under. A record
+ * with no `profile` is an evidence file from before profiles existed: it ran
+ * as "default". Evidence from different profiles in one pass is refused.
+ */
+export function launchProfile(records) {
+  const names = [...new Set(records.map((r) => r?.profile ?? "default"))];
+  if (names.length !== 1) throw new Error(`the evidence of one pass must come from one terminal profile, found: ${names.join(", ")}`);
+  return profileRecord(names[0]);
 }

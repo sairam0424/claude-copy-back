@@ -52,14 +52,14 @@ const ROWS: readonly Row[] = [
   {
     wrapper: "notify",
     method: "ui.toast",
-    reaches: ["copy-back: done", TOAST_OPTIONS],
-    run: ($) => notify($, "copy-back: done", TOAST_OPTIONS),
+    reaches: ["done", TOAST_OPTIONS],
+    run: ($) => notify($, "done", TOAST_OPTIONS),
   },
   {
     wrapper: "notify",
     method: "ui.toast",
-    reaches: ["copy-back: done"],
-    run: ($) => notify($, "copy-back: done"),
+    reaches: ["done"],
+    run: ($) => notify($, "done"),
   },
 ];
 

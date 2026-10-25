@@ -3,7 +3,7 @@
 //
 //   projectText(source) -> { projected, map, leadAt, lines }
 //     projected  the visible text with wraps joined: markers removed, list
-//                bullets as the glyph, links as their label
+//                bullets as the glyph, links as the terminal draws them (drawing.ts)
 //     map        for each UTF-16 unit of `projected`, the index in `source` it
 //                came from (hidden markers have no entry; they sit between)
 //     leadAt     which units are list markers (the matcher's fallback needs it)
@@ -14,6 +14,8 @@
 
 import { parseDocument } from "./blocks.ts";
 import type { Block, Lead, LineView } from "./blocks.ts";
+import { DEFAULT_DRAWING } from "./drawing.ts";
+import type { Drawing } from "./drawing.ts";
 import { inlineMask } from "./inline.ts";
 import { TAB_CELLS } from "./wrap.ts";
 import type { WrapMode } from "./wrap.ts";
@@ -175,6 +177,38 @@ function prefixesFor(block: Block): Prefixes {
   };
 }
 
+/** What the renderer draws in place of a character the inline mask flags 2, 3 or 4. */
+const DRAWN_INSTEAD: Readonly<Record<number, string>> = { 2: " ", 3: ") (", 4: '"' };
+
+/** One source line of a paragraph: runs of drawn text; a flagged character is drawn as the mask says. */
+function emitLine(out: Builder, line: LineView, hidden: Uint8Array, textStart: number): void {
+  const end = textStart + line.t.length;
+  let runStart = textStart;
+  for (let k = textStart; k <= end; k++) {
+    const flag = k === end ? 1 : (hidden[k] as number);
+    if (flag === 0) continue;
+    if (k > runStart) out.run(line.t.slice(runStart - textStart, k - textStart), line.o + (runStart - textStart));
+    const instead = DRAWN_INSTEAD[flag];
+    if (instead !== undefined) for (const ch of instead) out.unit(ch, line.o + (k - textStart));
+    runStart = k + 1;
+  }
+}
+
+/**
+ * The break between two source lines of a paragraph is a break on the screen, except inside a
+ * link's tail (flag 1: not drawn; flag 3: the ") (" before a title) or an inline code span (flag 2: a
+ * space), where the next line is glued on.
+ */
+function emitBreak(out: Builder, flag: number, at: number, close: () => void): void {
+  if (flag === 0) {
+    close();
+    out.unit("\n", at);
+    return;
+  }
+  for (const ch of DRAWN_INSTEAD[flag] ?? "") out.unit(ch, at);
+  close();
+}
+
 /** A paragraph or heading: markers the inline parser hides are left out. */
 function emitText(
   out: Builder,
@@ -182,8 +216,9 @@ function emitText(
   lines: LogicalLine[],
   prefixes: Prefixes,
   gap: boolean,
+  drawing: Drawing,
 ): void {
-  const hidden = inlineMask(block.lines.map((line) => line.t).join("\n"));
+  const hidden = inlineMask(block.lines.map((line) => line.t).join("\n"), drawing);
   pushLeads(out, block.leads);
   let from = out.length - leadUnits(block.leads);
   let first = true;
@@ -202,25 +237,11 @@ function emitText(
   block.lines.forEach((line: LineView, li: number) => {
     if (li > 0) {
       const prev = block.lines[li - 1] as LineView;
-      close();
-      out.unit("\n", prev.o + prev.t.length);
+      emitBreak(out, hidden[textStart - 1] as number, prev.o + prev.t.length, close);
       from = out.length;
     }
-    const end = textStart + line.t.length;
-    let runStart = textStart;
-    for (let k = textStart; k <= end; k++) {
-      const flag = k === end ? 1 : (hidden[k] as number);
-      if (flag === 0) continue;
-      if (k > runStart)
-        out.run(
-          line.t.slice(runStart - textStart, k - textStart),
-          line.o + (runStart - textStart),
-        );
-      // flag 2: the typed "]" of a link is drawn as a space
-      if (flag === 2) out.unit(" ", line.o + (k - textStart));
-      runStart = k + 1;
-    }
-    textStart = end + 1;
+    emitLine(out, line, hidden, textStart);
+    textStart += line.t.length + 1;
   });
   close();
 }
@@ -311,6 +332,7 @@ function emitTable(
 export function projectText(
   source: string,
   bullet: string = BULLET,
+  drawing: Drawing = DEFAULT_DRAWING,
 ): ProjectedText {
   const { blocks, contentAt } = parseDocument(source, bullet);
   const out = new Builder(source.length + 4 * blocks.length + 16, Math.max(0, source.length - 1));
@@ -322,7 +344,7 @@ export function projectText(
     if (prev !== undefined) out.separator(gap ? 2 : 1);
     const prefixes = prefixesFor(block);
     if (block.kind === "para" || block.kind === "heading")
-      emitText(out, block, lines, prefixes, gap);
+      emitText(out, block, lines, prefixes, gap, drawing);
     else if (block.kind === "code") emitCode(out, block, lines, prefixes, gap);
     else if (block.kind === "hr") emitRule(out, block, lines, prefixes, gap);
     else emitTable(out, block, lines, prefixes, gap);

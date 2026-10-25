@@ -46,7 +46,7 @@ test("the toast counts characters, not UTF-16 units: an emoji is one", async ($,
   const characters = Array.from(REPLY_UNICODE).length;
   expect(characters).toBeLessThan(REPLY_UNICODE.length);
   expect(k.toasts).toEqual([
-    `copy-back: copied ${characters} characters from reply 1 (1 = newest)`,
+    `copied ${characters} chars from reply 1 (1 = newest)`,
   ]);
 });
 

@@ -5,8 +5,9 @@
 //   1. strip the renderer's decoration from the copy (strip.ts)
 //   2. fold whitespace runs (spaces, newlines, tabs) to one space on BOTH
 //      sides, because the copy arrives hard-wrapped
-//   3. project each message to what the renderer draws (project.ts), search
-//      every message, and map each hit back to source offsets
+//   3. project each message to what the renderer draws (project.ts) under each
+//      way it can draw links and struck text (drawing.ts), search every message,
+//      and map each hit back to source offsets
 //
 // The searches, in order (patterns.ts): literal, then marker-agnostic, each in
 // fold then skeleton form, each with the copy kept as typed before it is
@@ -29,7 +30,7 @@
 //     candidate work than MAX_CANDIDATE_WORK): also "ambiguous". The search is
 //     bounded in memory and in time whatever the messages hold.
 
-import { compareIndentation } from "./fit.ts";
+import { breakConflict, compareIndentation } from "./fit.ts";
 import type { IndentFit } from "./fit.ts";
 import { pasteText } from "./paste.ts";
 import { buildPatterns, charCount } from "./patterns.ts";
@@ -42,7 +43,7 @@ import {
   leadSources,
   locator,
   markerlessView,
-  prepare,
+  prepareAll,
 } from "./views.ts";
 import type { Prepared, View } from "./views.ts";
 import { findAll, newMeter, newNeedle } from "./search.ts";
@@ -107,6 +108,8 @@ interface Candidate {
   mi: number;
   hit: Hit;
   slice: string;
+  /** The projection (one drawing of the message) the hit was found in. */
+  p: Prepared;
 }
 
 /** Index in `projected` of the list marker just before `first` (skipping blanks), or null. */
@@ -245,12 +248,18 @@ function collect(
   for (let mi = 0; mi < searched.length; mi++) {
     const message = searched[mi];
     if (typeof message !== "string" || message === "") continue;
-    const prepared = prepare(message);
-    if (pattern.sameAsLiteral && prepared.leadAt.length === 0) continue;
-    const hits = occurrences(prepared, pattern, needle, meter);
-    if (hits === null) return null;
-    for (const hit of hits)
-      out.push({ mi, hit, slice: message.slice(hit.start, hit.end) });
+    const seen = new Set<string>(); // the same slice found under two drawings is one hit
+    for (const prepared of prepareAll(message)) {
+      if (pattern.sameAsLiteral && prepared.leadAt.length === 0) continue;
+      const hits = occurrences(prepared, pattern, needle, meter);
+      if (hits === null) return null;
+      for (const hit of hits) {
+        const key = `${hit.start}:${hit.end}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ mi, hit, slice: message.slice(hit.start, hit.end), p: prepared });
+      }
+    }
   }
   return out;
 }
@@ -276,6 +285,14 @@ function exactIndentation(pool: readonly Judged[]): Judged[] {
   return exact.length > 0 && exact.length + shifted.length === pool.length
     ? exact
     : [...pool];
+}
+
+/** The candidates that draw no line break the copy lacks (fit.ts); if none is left, all stay. */
+function withTheCopysBreaks(candidates: readonly Candidate[], pattern: Pattern): Candidate[] {
+  const kept = candidates.filter(
+    (c) => !breakConflict(pattern.raw, c.hit.view.text.slice(c.hit.lo, c.hit.hi + 1)),
+  );
+  return kept.length > 0 ? kept : [...candidates];
 }
 
 function judge(candidates: readonly Candidate[], copy: string): Judged[] {
@@ -314,7 +331,9 @@ function choose(
   newestWins: boolean,
 ): Candidate | null {
   if (allSame(candidates)) return candidates[0] as Candidate;
-  const pool = indentationPool(candidates, pattern).map((j) => j.c);
+  const drawn = withTheCopysBreaks(candidates, pattern);
+  if (allSame(drawn)) return drawn[0] as Candidate;
+  const pool = indentationPool(drawn, pattern).map((j) => j.c);
   const head = pool[0] as Candidate;
   if (allSame(pool)) return head;
   if (newestWins && allSame(pool.filter((c) => c.mi === head.mi))) return head;
@@ -327,8 +346,7 @@ function answer(
   pattern: Pattern,
   message: string,
 ): FindResult {
-  const { hit } = winner;
-  const prepared = prepare(message);
+  const { hit, p: prepared } = winner;
   const paste = pasteText(
     { message, contentAt: prepared.contentAt, leadSrc: leadSources(prepared) },
     hit.start,

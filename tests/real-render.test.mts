@@ -4,10 +4,13 @@ import { BULLET, project, projectText } from "../src/core/project.ts";
 import { TAB_CELLS } from "../src/core/wrap.ts";
 import { findSource } from "../src/core/match.ts";
 
-// Facts about the REAL Claude Code 2.1.309 renderer, observed in the
-// calibration captures (realrender/, seed 101, four widths; the capture output
-// is not part of this repository). Each test names what the capture showed.
-// They pin the matcher's model of the renderer to those observations.
+// Facts about the REAL Claude Code renderer, observed in the calibration
+// captures (realrender/, seed 101 on 2.1.309 and seeds 4101 and 4103 on
+// 2.1.310, four widths; the capture output is not part of this repository).
+// Each test names what the capture showed. They pin the matcher's model of the
+// renderer to those observations. This file describes the DEFAULT profile (no
+// TERM_PROGRAM: links as "label (url)", tildes drawn); the Warp profile's
+// drawing and the nested ordered-list markers are pinned in drawings.test.mts.
 
 const visible = (source: string): string => projectText(source).projected;
 
@@ -49,11 +52,11 @@ describe("links and images are drawn 'label (url)' (calibration: 'some it\\n anc
     );
   });
 
-  test("a bracketed destination loses its angle brackets; a title is not drawn", () => {
+  test("a bracketed destination loses its angle brackets; a title is drawn in parentheses after the destination", () => {
     assert.equal(visible("[a](<https://x.y/z>)"), "a (https://x.y/z)");
     assert.equal(
       visible('[a](https://x.y/z "the title")'),
-      "a (https://x.y/z)",
+      'a (https://x.y/z) ("the title")',
     );
   });
 

@@ -89,9 +89,7 @@ test("only the 40 newest replies are searched", async ($, on) => {
   await start($);
   await press($);
   expect(k.copies).toHaveLength(0);
-  expect(k.toasts).toEqual([
-    "copy-back: no match in the last 40 replies, nothing changed",
-  ]);
+  expect(k.toasts).toEqual(["no match in last 40 replies, nothing changed"]);
 });
 
 test("rows that are not replies are skipped: user rows, tool-only turns, tool results", async ($, on) => {
@@ -160,6 +158,6 @@ test("the toast counts the characters of the paste form", async ($, on) => {
   await start($);
   await press($);
   expect(k.toasts).toEqual([
-    `copy-back: copied ${Array.from(PASTE_QUOTE).length} characters from reply 1 (1 = newest)`,
+    `copied ${Array.from(PASTE_QUOTE).length} chars from reply 1 (1 = newest)`,
   ]);
 });

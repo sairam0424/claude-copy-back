@@ -13,7 +13,8 @@ import type { EngineInterface } from "claude-code";
 // declaration: the engine follows `$` past an import only into a function
 // declaration (an arrow bound to a const fails the load), and reads the API
 // off the call spelled in the wrapper's body. Names are at most seven
-// characters and unique across hooks/ (tests/kit/api.test.tsx pins both).
+// characters and unique across hooks/ (tests/cc-seam.test.mts pins all three;
+// tests/kit/api.test.tsx pins the length again, on the built wrappers).
 //
 // `pbpaste` is the one wrapper that fixes its arguments: it can start one
 // program, pbpaste, with a short timeout and a UTF-8 locale, and nothing else,

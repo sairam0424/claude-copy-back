@@ -3,6 +3,8 @@
 // with the list-marker units left out (the marker-agnostic search), plus the
 // whitespace-folded forms the search runs over.
 
+import { DEFAULT_DRAWING, drawingsFor } from "./drawing.ts";
+import type { Drawing } from "./drawing.ts";
 import { foldText, isSpace, unfold } from "./fold.ts";
 import type { Mode } from "./fold.ts";
 import { projectText } from "./project.ts";
@@ -37,10 +39,15 @@ let cacheLimit = 300;
 /** Hits above this many get an O(1) folded-index lookup instead of a linear scan each. */
 const LINEAR_LOCATES = 8;
 
-export function prepare(text: string): Prepared {
-  const hit = cache.get(text);
+/** The cache key of a message under a drawing: the default one keeps the bare text. */
+const keyOf = (text: string, drawing: Drawing): string =>
+  drawing === DEFAULT_DRAWING ? text : `${drawing.links}/${drawing.strike}\u0000${text}`;
+
+export function prepare(text: string, drawing: Drawing = DEFAULT_DRAWING): Prepared {
+  const key = keyOf(text, drawing);
+  const hit = cache.get(key);
   if (hit !== undefined) return hit;
-  const { projected, map, leadAt, contentAt } = projectText(text);
+  const { projected, map, leadAt, contentAt } = projectText(text, undefined, drawing);
   const made: Prepared = {
     projected,
     map,
@@ -52,8 +59,22 @@ export function prepare(text: string): Prepared {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
-  cache.set(text, made);
+  cache.set(key, made);
   return made;
+}
+
+/**
+ * Every way the message can be drawn that looks different: its projection under each drawing
+ * (drawing.ts), the default first, those that draw the same text as an earlier one left out.
+ * A message with no link and no double tilde has one.
+ */
+export function prepareAll(text: string): Prepared[] {
+  const out: Prepared[] = [];
+  for (const drawing of drawingsFor(text)) {
+    const p = prepare(text, drawing);
+    if (!out.some((q) => q.projected === p.projected)) out.push(p);
+  }
+  return out;
 }
 
 /** How many message projections to keep (default 300). The replay harness raises it. */

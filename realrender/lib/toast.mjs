@@ -4,29 +4,33 @@
 // checks. A toast is counts and fixed words only.
 //
 // What the real engine does to it (seen in the development runs): it shows the
-// toast as "<plugin name>: <text>" on a one-row notification bar, so the
-// plugin's own "copy-back: " is on screen twice, and it cuts the row at the
-// pane width with U+2026. The reader strips one prefix and keeps a flag.
+// toast as "<plugin name>: <text>" on a one-row notification bar, and it cuts
+// the row at the pane width with U+2026. The plugin used to write its own
+// "copy-back: " too, so the name was on screen twice; the hooks no longer do
+// (their lines are shorter, to fit 60 columns), and the reader still strips a
+// doubled prefix so that older evidence reads. The patterns below are the
+// wording of hooks/outcome.ts and hooks/register.tsx as of 2026-10-24 (the
+// screen shows the engine's "copy-back: " in front).
 
 export const PREFIX = "copy-back:";
 export const CUT = "…";
 
-/** The toast line the plugin shows for each refusal reason. */
+/** The toast line the plugin shows for each refusal reason (with the engine's name in front). */
 export const REFUSAL_PATTERNS = [
   ["empty", /^copy-back: clipboard is empty, nothing changed$/],
   ["unreadable", /^copy-back: could not read the clipboard, nothing changed$/],
-  ["too-large", /^copy-back: clipboard is over 200000 characters, nothing changed$/],
+  ["too-large", /^copy-back: clipboard over 200000 chars, nothing changed$/],
   ["session-unreadable", /^copy-back: could not read the session, nothing changed$/],
-  ["too-short", /^copy-back: copied text is under 12 characters, nothing changed$/],
-  ["no-match", /^copy-back: (?:no replies to search|no match in (?:the last reply|the last \d+ replies)), nothing changed$/],
+  ["too-short", /^copy-back: copied text under 12 chars, nothing changed$/],
+  ["no-match", /^copy-back: (?:no replies to search|no match in (?:the last reply|last \d+ replies)), nothing changed$/],
   ["ambiguous", /^copy-back: matches more than one place, nothing changed$/],
-  ["copy-refused", /^copy-back: the clipboard write was refused \((?:no-surface|no-clipboard|refused)\)$/],
-  ["copy-failed", /^copy-back: the clipboard write failed$/],
-  ["failed", /^copy-back: stopped on an unexpected error, nothing changed$/],
+  ["copy-refused", /^copy-back: clipboard write was refused \((?:no-surface|no-clipboard|refused)\)$/],
+  ["copy-failed", /^copy-back: clipboard write failed$/],
+  ["failed", /^copy-back: unexpected error, nothing changed$/],
   ["register", /^copy-back: could not register \/cc$/],
 ];
 
-const COPIED = /^copy-back: copied (\d+) characters from reply (\d+) \(1 = newest\)$/;
+const COPIED = /^copy-back: copied (\d+) chars from reply (\d+) \(1 = newest\)$/;
 
 /** Judge one COMPLETE toast line: copied (with its two counts), a refusal reason, or other. */
 export function classifyToast(text) {
@@ -37,18 +41,18 @@ export function classifyToast(text) {
 }
 
 /** Expected line of a positive case. */
-export const copiedLine = (chars, rank) => `${PREFIX} copied ${chars} characters from reply ${rank} (1 = newest)`;
+export const copiedLine = (chars, rank) => `${PREFIX} copied ${chars} chars from reply ${rank} (1 = newest)`;
 
 /** Canonical refusal lines of the live pass's refusal kinds (the window holds 40 replies). */
 export const REFUSAL_LINES = Object.freeze({
-  mutated: `${PREFIX} no match in the last 40 replies, nothing changed`,
-  canary: `${PREFIX} no match in the last 40 replies, nothing changed`,
-  short: `${PREFIX} copied text is under 12 characters, nothing changed`,
+  mutated: `${PREFIX} no match in last 40 replies, nothing changed`,
+  canary: `${PREFIX} no match in last 40 replies, nothing changed`,
+  short: `${PREFIX} copied text under 12 chars, nothing changed`,
   empty: `${PREFIX} clipboard is empty, nothing changed`,
   blank: `${PREFIX} clipboard is empty, nothing changed`,
   exit1: `${PREFIX} could not read the clipboard, nothing changed`,
   sleep: `${PREFIX} could not read the clipboard, nothing changed`,
-  huge: `${PREFIX} clipboard is over 200000 characters, nothing changed`,
+  huge: `${PREFIX} clipboard over 200000 chars, nothing changed`,
 });
 
 /** Strip the engine's name prefix once and the cut mark; keep whether the row was cut. */

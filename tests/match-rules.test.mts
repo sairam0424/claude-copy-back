@@ -5,6 +5,7 @@ import { project } from "../src/core/project.ts";
 import { assertHit, find, makeCase, WIDTHS } from "../src/sim/testkit.ts";
 import { randomMarkdown } from "../src/sim/grammar.ts";
 import { mulberry32 } from "../src/sim/prng.ts";
+import { assertCpuWithin, cpuTimed } from "./timing.ts";
 
 describe("findSource: refusals", () => {
   const message =
@@ -275,13 +276,12 @@ describe("findSource: non-ASCII", () => {
 
 describe("findSource: speed", () => {
   // Main-thread CPU time, not wall time: other processes on a busy machine
-  // cannot inflate it. Wall time is checked loosely as a pathology guard.
-  const cpuMs = (): number => {
-    const { user, system } = process.threadCpuUsage();
-    return (user + system) / 1000;
-  };
+  // cannot inflate it, and the bounds are scaled by CB_TEST_TIME_FACTOR
+  // (tests/timing.ts). Idle, a cold search takes about 55 ms of CPU and a warm
+  // repeat about 1 ms; the bounds are many times that, to catch work that
+  // grows with the square of the input, not to measure speed.
 
-  test("40 messages of 20 KB with no match stay well under 200 ms (cold, best of 3)", () => {
+  test("40 messages of 20 KB with no match are searched in bounded CPU time (cold, best of 3), and a warm repeat is served from the cache", () => {
     const rng = mulberry32(4242);
     const messages: string[] = [];
     for (let i = 0; i < 40; i++) {
@@ -291,21 +291,21 @@ describe("findSource: speed", () => {
     }
     const needle = "this sentence is in none of the forty synthetic messages at all";
     const cold: number[] = [];
-    let wallBest = Infinity;
     for (let run = 0; run < 3; run++) {
       resetMatchCache();
-      const c0 = cpuMs();
-      const w0 = performance.now();
-      const result = findSource(needle, messages);
-      cold.push(cpuMs() - c0);
-      wallBest = Math.min(wallBest, performance.now() - w0);
+      const { value: result, cpuMs } = cpuTimed(() =>
+        findSource(needle, messages),
+      );
+      cold.push(cpuMs);
       assert.deepEqual(result, { ok: false, reason: "no-match" });
     }
-    const best = Math.min(...cold);
-    assert.ok(best < 150, `cold CPU ${cold.map((c) => c.toFixed(1)).join(", ")} ms`);
-    assert.ok(wallBest < 1000, `cold wall ${wallBest.toFixed(1)} ms`);
-    const c1 = cpuMs();
-    findSource(needle, messages);
-    assert.ok(cpuMs() - c1 < 25, "a warm repeat is served from the projection cache");
+    assertCpuWithin(
+      "match-rules: cold search, best of 3",
+      Math.min(...cold),
+      1000,
+    );
+    const warm = cpuTimed(() => findSource(needle, messages));
+    assert.deepEqual(warm.value, { ok: false, reason: "no-match" });
+    assertCpuWithin("match-rules: warm repeat", warm.cpuMs, 100);
   });
 });

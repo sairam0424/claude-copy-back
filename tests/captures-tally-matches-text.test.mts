@@ -1,6 +1,6 @@
 // `tally`, printed: when a PASS is missing only matched-and-right copies, the
 // report says how many more and what to copy; the weak-pass label is gone.
-// World letters: see captures-tally-matches.test.ts. Synthetic entries only.
+// World letters: see captures-tally-matches.test.mts. Synthetic entries only.
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";

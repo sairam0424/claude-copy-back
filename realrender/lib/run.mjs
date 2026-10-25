@@ -9,6 +9,7 @@ import { EXPECTED_VERSION, SEAL_PATH, forbiddenName } from "./config.mjs";
 import { surveyTurns } from "./corpus.mjs";
 import { addedNames, analyzeRaw, bannerVersion, dialogsIn, listTree, processTree, tmpNames } from "./evidence.mjs";
 import { parseNettop, summarize } from "./netproof.mjs";
+import { profileEnv, profileRecord } from "./profile.mjs";
 import { makeSandbox, writeFixtures } from "./sandbox.mjs";
 import { readStubLog, startStub } from "./stubproc.mjs";
 import { moveToTrash, stopPid } from "./teardown.mjs";
@@ -19,6 +20,11 @@ import { findTool, hash, sleep } from "./util.mjs";
 const KINDS = ["plain", "joined", "styled", "styledJoined", "padded"];
 // whole-history captures (classic mode): plain, -J and -e views; the plain one keeps its old name
 const HISTORY_KINDS = [["plain", ""], ["joined", "-joined"], ["styled", "-styled"]];
+
+/** The extra environment pairs of a launch: the experiment's --env pairs, then the terminal profile's. */
+export function launchExtraEnv(opts) {
+  return [...(opts.extraEnv ?? []), ...profileEnv(opts.profile)];
+}
 
 /** Locate the tools once, with absolute paths. */
 export function preflight(claudeOverride) {
@@ -95,7 +101,7 @@ async function launch(ctx) {
   const fixtures = writeFixtures({
     sandbox, port: ctx.stub.port, claude: tools.claude, version: EXPECTED_VERSION,
     sessionId: ctx.sessionId, turns: survey.turns, mode: opts.mode, drop: opts.drop,
-    extraEnv: opts.extraEnv,
+    extraEnv: launchExtraEnv(opts),
   });
   const bad = forbiddenName(fixtures.env);
   if (bad) throw new Error(`forbidden variable in the sealed env: ${bad}`);
@@ -136,6 +142,7 @@ function collect(ctx, captures) {
   const summary = summarize(ctx.watch.samples);
   const tmpAfter = tmpNames();
   return {
+    ...profileRecord(ctx.opts.profile),
     mode: ctx.opts.mode, width: ctx.opts.width, height: ctx.opts.height, pid: ctx.pid,
     env: ctx.env.map(([k, v]) => `${k}=${v}`),
     process: processTree(ctx.pid),

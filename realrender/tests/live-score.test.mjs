@@ -40,7 +40,7 @@ describe("live case scoring", () => {
     assert.equal(right.verdict, "complete");
     const wrongRank = scoreCase(positive, obs({ osc52: [osc("alpha beta")], toasts: [toast(copiedLine(10, 34))] }));
     assert.equal(wrongRank.verdict, "wrong");
-    const cut = scoreCase(positive, obs({ osc52: [osc("alpha beta")], toasts: [toast("copy-back: copied 10 characters from reply 3", true)] }));
+    const cut = scoreCase(positive, obs({ osc52: [osc("alpha beta")], toasts: [toast("copy-back: copied 10 chars from reply 3", true)] }));
     assert.equal(cut.verdict, "prefix");
     assert.equal(scoreCase(positive, obs({ osc52: [osc("alpha beta")] })).verdict, "missing");
   });

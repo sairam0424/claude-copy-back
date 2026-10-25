@@ -7,10 +7,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { bannerVersion, listTree } from "./evidence.mjs";
 import { CANARY, planWidth } from "./live-cases.mjs";
-import { BUSY_TEXT, collectSince, observe, reconcileWrites, settleWrites, takeMark, typeCc, waitIdle } from "./live-observe.mjs";
+import { BUSY_TEXT, captureAccountError, collectSince, observe, reconcileWrites, settleCaptureAccounting, settleWrites, takeMark, typeCc, waitIdle } from "./live-observe.mjs";
 import { sessionTurns, sentinelOf } from "./corpus-set.mjs";
 import { scoreCase } from "./live-score.mjs";
 import { noticeLines } from "./live-summary.mjs";
+import { profileRecord } from "./profile.mjs";
 import { openSession, closeSession, waitDrawn, stubRequests } from "./live-session.mjs";
 import { summarize } from "./netproof.mjs";
 import { copiesFor, locateOnScreen, rowsOf } from "./screen.mjs";
@@ -36,15 +37,30 @@ async function attempt(ctx, c) {
   return { idle, seen, got, settle, ms: Date.now() - started };
 }
 
-/** Run one case; a case whose command never ran (no pbpaste call) is retried once with the same fixture. */
-export async function runCase(ctx, c) {
-  let run = await attempt(ctx, c);
+/** What a discarded first attempt saw and did: kept, scored and reported with the case. */
+function firstAttemptOf(run) {
+  return {
+    pbpasteCalls: run.got.pbpasteCalls, osc52: run.got.osc52, writers: run.got.writers, toasts: run.seen.toasts,
+    toastAfterMs: run.seen.toastAfterMs, endedBy: run.seen.endedBy, stubRequests: run.got.stubRequests, sessionAdded: run.got.sessionAdded,
+  };
+}
+
+/**
+ * Run one case; a case whose command never ran (no pbpaste call) is retried once with the
+ * same fixture. The first attempt is NOT discarded: its toast, counts and any write it made
+ * stay in the case record (`firstAttempt`) and its writes are scored with the case.
+ * `attemptFn` is injectable for the tests.
+ */
+export async function runCase(ctx, c, attemptFn = attempt) {
+  let run = await attemptFn(ctx, c);
   let attempts = 1;
+  let first;
   if (run.got.pbpasteCalls === 0) {
-    run = await attempt(ctx, c);
+    first = firstAttemptOf(run);
+    run = await attemptFn(ctx, c);
     attempts = 2;
   }
-  const obs = { attempts, pbpasteCalls: run.got.pbpasteCalls, osc52: run.got.osc52, writers: run.got.writers, toasts: run.seen.toasts };
+  const obs = { attempts, first, pbpasteCalls: run.got.pbpasteCalls, osc52: run.got.osc52, writers: run.got.writers, toasts: run.seen.toasts };
   const scored = scoreCase(c, obs);
   return {
     ...scored,
@@ -78,6 +94,7 @@ export function canaryHits(root, skipDirs = ["shims"]) {
  * @param {object[]} o.records the holdout records of this width (file order)
  * @param {string} o.evidenceDir
  * @param {string} [o.claude]
+ * @param {string} [o.profile] terminal profile (profile.mjs), default "default"; recorded in results.json
  * @param {string} [o.repo] plugin source folder (default: this repository; a mutant copy for the harness controls)
  * @param {number} [o.limit] run only the first `limit` positives (development); all refusals still run
  * @param {(line: string) => void} [o.log]
@@ -86,8 +103,8 @@ export async function runWidth(o) {
   const log = o.log ?? (() => {});
   const turns = sessionTurns(o.corpus);
   const sentinel = sentinelOf(o.corpus);
-  const ctx = await openSession({ width: o.width, height: 50, turns, sentinel, claude: o.claude, repo: o.repo });
-  const out = { width: o.width, drawn: false, error: null };
+  const ctx = await openSession({ width: o.width, height: 50, turns, sentinel, claude: o.claude, repo: o.repo, profile: o.profile });
+  const out = { width: o.width, ...profileRecord(o.profile), drawn: false, error: null };
   const unguard = guardSignals(ctx, o);
   try {
     out.drawn = await waitDrawn(ctx, sentinel, 120_000);
@@ -114,7 +131,7 @@ export async function runWidth(o) {
     await waitIdle(ctx);
     ctx.watch.phase = "after";
     await ctx.watch.wait(1000);
-    finish(ctx, out);
+    await finish(ctx, out);
   } catch (error) {
     out.error = String(error.message);
   } finally {
@@ -125,12 +142,15 @@ export async function runWidth(o) {
   return out;
 }
 
-/** Facts read once the cases are done. */
-function finish(ctx, out) {
+/** Facts read once the cases are done. A capture file without a log line (or the reverse) fails the launch. */
+async function finish(ctx, out) {
   out.stub = { requests: stubRequests(ctx).length, lines: stubRequests(ctx).map((l) => `${l.method} ${l.target}`) };
   out.network = summarize(ctx.watch.samples);
   out.homeFiles = listTree(ctx.sandbox.home).map((f) => `${f.path} (${f.bytes})`);
   out.writes = reconcileWrites(logLength(ctx.shimDir, "clip"), out.cases);
+  out.captureFiles = await settleCaptureAccounting(ctx);
+  const unbalanced = captureAccountError(out.captureFiles);
+  if (unbalanced) out.error = unbalanced;
   out.canaryHits = canaryHits(ctx.sandbox.dir);
   const finalScreen = ctx.tmux.capture("plain", { history: true });
   out.canaryOnScreen = finalScreen.includes(CANARY);

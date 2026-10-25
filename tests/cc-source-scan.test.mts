@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scanSource } from "../scripts/lib/source-scan.mjs";
+import { assertCpuWithin, cpuTimed } from "./timing.ts";
 
-// The scanner behind the privacy guard (tests/cc-source-guard.test.ts and
+// The scanner behind the privacy guard (tests/cc-source-guard.test.mts and
 // scripts/check-sources.mjs). It reads TypeScript as tokens, so a word inside a
 // comment, a string or a regular expression is not code, and a banned name in
 // code is found wherever it stands. These tests pin both halves: the shapes
@@ -80,6 +81,59 @@ const REFUSED: Record<string, string> = {
   "a banned name written with a unicode escape": "\\u0063onsole.log(1);",
   "a banned name with an escape in brackets": 'x["con\\u0073ole"].log(1);',
   "a banned name with a code point escape": "\\u{63}onsole.log(1);",
+  "a banned name in an optional bracket": 'const e = x?.["process"];',
+  "a descriptor read": "const d = Object.getOwnPropertyDescriptor(o, k);",
+  "descriptors read in bulk": "const d = Object.getOwnPropertyDescriptors(o);",
+  "own property names": "const n = Object.getOwnPropertyNames(o);",
+  "own property symbols": "const n = Object.getOwnPropertySymbols(o);",
+  "defineProperty on a built-in":
+    'Object.defineProperty(Array.prototype, "x", { value: 1 });',
+  defineProperties: "Object.defineProperties(o, {});",
+  "the legacy getter hooks": "o.__defineGetter__(k, f); o.__lookupGetter__(k);",
+  "the legacy setter hooks": "o.__defineSetter__(k, f); o.__lookupSetter__(k);",
+  ".prototype of a built-in": "Array.prototype.cbLast = clip.text;",
+  "?.prototype": "const p = a?.prototype;",
+  'the string "__proto__" outside brackets': 'const k = "__proto__";',
+  'the string "constructor" outside brackets': 'const k = "constructor";',
+  'the string "prototype" outside brackets': "const k = 'prototype';",
+  'the template "constructor" outside brackets': "const k = `constructor`;",
+  'the string "constructor" written with an escape':
+    'const k = "\\u0063onstructor";',
+  "a name built from two strings in brackets":
+    'const F = (() => 0)["con" + "structor"]; F("return this")();',
+  "a name built from a template in brackets":
+    'const F = (() => 0)[`con${"structor"}`];',
+  "a name built from strings after an optional chain":
+    'const c = realm?.["con" + "sole"];',
+  "a name built from a call on a string":
+    'const c = realm["CON".toLowerCase()];',
+  "a name built from strings inside a nested index":
+    'const c = realm[names[0] + "sole"];',
+  // The typed bypass found in the 0.1.1 safety review (mutant M2b): Function is
+  // reached through the descriptor of __proto__ and "constructor", the global
+  // object through Function("return this"), the console through a built name,
+  // and the encoded clipboard is printed from a promise job.
+  "the descriptor route to Function and the console (review mutant M2b)": [
+    "const desc: (o: object, k: string) => { value?: unknown; get?: () => unknown } | undefined = Object.getOwnPropertyDescriptor;",
+    'const fnProto = desc(Object.prototype, "__proto__")?.get?.call(() => 0) as object;',
+    'const make = desc(fnProto, "constructor")?.value as (src: string) => () => Record<string, { log: (...a: unknown[]) => void }>;',
+    'const realm = make("return this")();',
+    'const printer = realm["con" + "sole"];',
+    'const encoded = Array.from(clip.text).map((c) => c.codePointAt(0)).join(",");',
+    "Promise.resolve().then(printer.log.bind(printer, encoded));",
+  ].join("\n"),
+  // Routes that need neither a dot before the name nor one string that holds it.
+  "constructor taken by destructuring": "const { constructor: F } = () => 0;",
+  "constructor taken by shorthand destructuring": "const { constructor } = fn;",
+  "prototype taken by destructuring": "const { prototype: P } = Array; P.cbLast = clip.text;",
+  "a name built from strings as an object-pattern key":
+    'const { ["con" + "sole"]: c } = realm;',
+  "a name built from a template as an object-pattern key":
+    "const { [`con${s}`]: c } = realm;",
+  "a built key after a comma in an object pattern":
+    'const { a, ["con" + "sole"]: c } = realm;',
+  "a built-in stash through defineProperty (review mutant M1b)":
+    'Object.defineProperty(Array.prototype, "cbLast", { value: clip.text, configurable: true, writable: true });',
 };
 
 for (const [name, source] of Object.entries(REFUSED)) {
@@ -87,6 +141,33 @@ for (const [name, source] of Object.entries(REFUSED)) {
     assert.ok(rules(source).length > 0, source);
   });
 }
+
+test("the new routes are named by their own rules", () => {
+  assert.deepEqual(rules("Object.getOwnPropertyDescriptor(o, k);"), [
+    "reflection",
+  ]);
+  assert.deepEqual(rules("const p = A.prototype;"), ["reflection"]);
+  assert.deepEqual(rules('const k = "prototype";'), ["reflection-string"]);
+  assert.deepEqual(rules('const F = f["con" + "structor"];'), [
+    "computed-name",
+  ]);
+  assert.deepEqual(rules('const F = f["constructor"];'), ["bracket-name"]);
+});
+
+test("a computed-name finding is on the bracket's line and names the bracket, not the text", () => {
+  const found = scanSource('const a = 1;\nconst F = f[\n  "con" + "structor"];\n');
+  assert.deepEqual(found, [{ rule: "computed-name", line: 2, token: "[" }]);
+});
+
+test("the optional-bracket and nested-bracket scans stay linear on a hostile source", () => {
+  const nested = `x${"[y".repeat(40_000)}${"]".repeat(40_000)};`;
+  const unclosed = `x${"[y".repeat(40_000)};`;
+  const { cpuMs } = cpuTimed(() => {
+    scanSource(nested);
+    scanSource(unclosed);
+  });
+  assertCpuWithin("cc-source-scan: 40,000 nested brackets", cpuMs, 5000);
+});
 
 const ALLOWED: Record<string, string> = {
   "a line comment": "// console.error(x); process.env; fetch()\nconst a = 1;",
@@ -130,6 +211,25 @@ const ALLOWED: Record<string, string> = {
   "ordinary text work": 'const out = text.replaceAll("a", "b").split("\\n");',
   "a property named text": "const t = row.text;",
   "a JSX-free arrow": "const f = (a: number) => a * 2;",
+  "an array literal of built strings": 'return ["a" + b, "c" + d];',
+  "an array literal after a keyword": 'const x = typeof y === "a" ? ["b" + c] : [];',
+  "an array of strings passed to a call": 'run(["pbpaste"], { timeoutMs: 2000 });',
+  "an array destructuring": "const [first, second] = pair;",
+  "an index by arithmetic": "const v = rows[i + 1] + rows[i - 1];",
+  "an index by a variable": "const line = FIXED_LINES[reason];",
+  "a lone string index that names nothing banned": 'const v = table["text"];',
+  "words around the reflection words in a longer string":
+    'const s = "the constructor and the prototype of __proto__ routes";',
+  "names that only contain a reflection word":
+    "const own = getOwnPropertyDescriptorLike + definePropertyCount + prototypeOf;",
+  "an object literal with a key held in a variable": "const o = { [key]: 1, b: 2 };",
+  "an object literal with a plain key and an array of built strings":
+    'const o = { a: ["x" + y], b: 1 };',
+  "a class with a constructor and a method": "class A { constructor() {} go() {} }",
+  "the word constructor in a comment before a destructuring":
+    "/* constructor */ const { a, b } = c;",
+  "a method called on a property named like a built-in's":
+    "const n = items.names.length + ids.descriptor;",
 };
 
 for (const [name, source] of Object.entries(ALLOWED)) {
@@ -167,9 +267,9 @@ test("an unterminated string or template does not hang or throw", () => {
   assert.doesNotThrow(() => scanSource("const r = /never closed"));
 });
 
-test("a million-character source is scanned in linear time", () => {
+test("a million-character source is scanned, with nothing found, in bounded time", () => {
   const source = "const a = b / c;\n".repeat(60_000);
-  const start = Date.now();
-  assert.deepEqual(scanSource(source), []);
-  assert.ok(Date.now() - start < 5000, "scan took too long");
+  const { value: found, cpuMs } = cpuTimed(() => scanSource(source));
+  assert.deepEqual(found, []);
+  assertCpuWithin("cc-source-scan: a million characters", cpuMs, 5000);
 });

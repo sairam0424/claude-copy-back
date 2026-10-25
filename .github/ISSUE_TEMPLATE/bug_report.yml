@@ -25,7 +25,7 @@ body:
     attributes:
       label: copy-back version
       description: From `claude plugin list`, or the `version` in the plugin's `.claude-plugin/plugin.json`.
-      placeholder: "0.1.0"
+      placeholder: "0.1.1"
     validations:
       required: true
 

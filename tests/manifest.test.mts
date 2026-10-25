@@ -85,10 +85,45 @@ describe("package.json", () => {
     ])
       assert.equal(typeof pkg.scripts[name], "string", name);
     // `node --test tests/` fails on Node 22 (the directory is loaded as a module).
-    assert.match(pkg.scripts.test, /"tests\/\*\.test\.ts"/);
+    assert.match(pkg.scripts.test, /"tests\/\*\.test\.mts"/);
     assert.match(pkg.scripts["test:rig"], /"realrender\/tests\/\*\.test\.mjs"/);
     for (const name of ["test", "test:rig"])
       assert.match(pkg.scripts[name], /--test-concurrency=1/, name);
+  });
+});
+
+describe("the changelog follows the version", () => {
+  const changelog = text("CHANGELOG.md");
+  const headings = [
+    ...changelog.matchAll(/^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/gm),
+  ];
+  const links = new Map(
+    [...changelog.matchAll(/^\[([^\]]+)\]: (\S+)$/gm)].map((m) => [m[1], m[2]]),
+  );
+
+  test("the newest dated section is the package version", () => {
+    assert.ok(headings.length >= 1, "expected one dated section per release");
+    assert.equal(headings[0][1], pkg.version);
+  });
+
+  test("[Unreleased] stays above the newest release and compares from its tag", () => {
+    const unreleased = changelog.indexOf("## [Unreleased]");
+    assert.ok(unreleased >= 0 && unreleased < changelog.indexOf("## [0."));
+    assert.equal(
+      links.get("Unreleased"),
+      `${REPO_URL}/compare/v${pkg.version}...HEAD`,
+    );
+  });
+
+  test("every release has a link: the first a tag, each later one a compare from the one before", () => {
+    const versions = headings.map((h) => h[1]).reverse();
+    versions.forEach((version, at) => {
+      const expected =
+        at === 0
+          ? `${REPO_URL}/releases/tag/v${version}`
+          : `${REPO_URL}/compare/v${versions[at - 1]}...v${version}`;
+      assert.equal(links.get(version), expected, version);
+    });
   });
 });
 

@@ -1,0 +1,117 @@
+# Weekly check of the newest published Claude Code.
+#
+# The plugin API this mod uses is early access, and ci.yml tests only exact
+# pinned versions (the engine floor and the version the matcher was calibrated
+# on). This workflow takes whatever @anthropic-ai/claude-code is published as
+# `latest` once a week and runs the three engine gates against it: the strict
+# validate, the footprint gate (check-footprint.sh) and the kit tests
+# (kit-test.sh). Like ci.yml it needs no API key and makes no model call.
+#
+# A red run means the engine changed in a way that touches the mod (or a gate
+# changed what it reads). GitHub emails a failed scheduled run to the user who
+# last edited the cron line below, if that user's Actions notification settings
+# allow it. The run also writes what to do into its summary, and
+# docs/DEVELOPMENT.md ("Engine drift check") has the full steps.
+#
+# Facts about scheduled workflows (GitHub's documentation): they run only from
+# the default branch, can be delayed at busy times (hence the odd minute), and
+# in a PUBLIC repository they are switched off after 60 days without repository
+# activity; a push or the "Run workflow" button brings them back. Start a run by
+# hand from the Actions tab whenever you want one now.
+#
+# Hardening is the same as ci.yml (tests/workflows.test.mts pins it): read-only
+# token, no secrets, actions pinned to full commit SHAs, a timeout, no ${{ }}
+# inside a run: block. The version that npm reports is checked against a strict
+# pattern before it is written to the environment file.
+
+name: engine-drift
+
+on:
+  schedule:
+    - cron: "37 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-drift
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  drift:
+    name: engine drift (newest Claude Code)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.x"
+          package-manager-cache: false
+
+      # Resolve `latest` once, so every later step tests the same version even
+      # if a new one is published while this job runs.
+      - name: Find the newest published version
+        run: |
+          newest="$(npm view @anthropic-ai/claude-code version)"
+          if ! [[ "${newest}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error title=engine drift::npm did not report a plain x.y.z version"
+            exit 1
+          fi
+          echo "CLAUDE_VERSION=${newest}" >> "${GITHUB_ENV}"
+          echo "newest published Claude Code: ${newest}"
+
+      - name: Install that version and check what it reports
+        run: |
+          version="$(npx --yes "@anthropic-ai/claude-code@${CLAUDE_VERSION}" --version)"
+          echo "${version}"
+          if [ "${version}" != "${CLAUDE_VERSION} (Claude Code)" ]; then
+            echo "::error title=engine drift::the engine reports another version string than ${CLAUDE_VERSION}"
+            exit 1
+          fi
+
+      - name: Validate the plugin (strict)
+        run: npx --yes "@anthropic-ai/claude-code@${CLAUDE_VERSION}" plugin validate . --strict
+
+      - name: Footprint gate
+        run: CB_CLAUDE="npx --yes @anthropic-ai/claude-code@${CLAUDE_VERSION}" bash scripts/check-footprint.sh
+
+      - name: Kit tests
+        run: CB_CLAUDE="npx --yes @anthropic-ai/claude-code@${CLAUDE_VERSION}" bash scripts/kit-test.sh
+
+      - name: Summary
+        if: success()
+        run: |
+          {
+            echo "### Engine drift: no drift"
+            echo
+            echo "Claude Code ${CLAUDE_VERSION} passed the strict validate, the footprint gate and the kit tests."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: What to do
+        if: failure()
+        run: |
+          {
+            echo "### Engine drift: a step failed on Claude Code ${CLAUDE_VERSION:-(version not found)}"
+            echo
+            echo "1. Open the failed step above. Its name says which gate (or the version lookup) failed."
+            echo "2. Reproduce it on your Mac with an isolated HOME: run the failing script with CB_CLAUDE set to the npx command for that version (the exact lines are in docs/DEVELOPMENT.md)."
+            echo "3. Decide: a change in the engine's access report or in the plugin API means a fix in the mod or in a gate (a normal pull request, tests first); a harmless change means moving the pin in ci.yml."
+            echo "4. If the mod must not be used with that version, say so in README.md under Limits."
+            echo
+            echo "Details: docs/DEVELOPMENT.md, section \"Engine drift check\"."
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "::error title=engine drift::Claude Code ${CLAUDE_VERSION:-(version not found)} failed a step; see the run summary"

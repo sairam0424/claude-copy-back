@@ -2,6 +2,8 @@
 //
 // obs = {
 //   attempts,                      1, or 2 after the one allowed retry
+//   first,                         the first attempt of a retried case ({toasts, osc52, writers, ...}) or absent;
+//                                  its write events count as the case's: nothing the first attempt did is hidden
 //   pbpasteCalls,                  calls of the pbpaste shim in the window
 //   osc52: [{kind, text, validUtf8}],
 //   writers: [{name, text}],       pbcopy / xclip / xsel / wl-copy / osascript shim calls
@@ -9,6 +11,8 @@
 // }
 
 import { copiedLine, judgeToast } from "./toast.mjs";
+
+const NONE = Object.freeze({ osc52: [], writers: [] });
 
 /** Every write event of a case as {channel, text} (text null = not valid UTF-8). */
 export function writeEvents(obs) {
@@ -40,13 +44,28 @@ function scoreRefusal(c, obs, events) {
   return { exact: null, wrongPayload: !untouched, untouched, expectedLine: c.expectedLine, ...toastVerdict(obs.toasts, c.expectedLine) };
 }
 
-/** The case's verdicts. `valid` means the pbpaste shim ran exactly once. */
+/** What the discarded first attempt of a retried case did, as plain facts (null when there was none). */
+export function firstAttemptRecord(first) {
+  if (!first) return null;
+  return {
+    pbpasteCalls: first.pbpasteCalls,
+    toasts: first.toasts.map((t) => (t.truncated ? `${t.text}…` : t.text)),
+    toastAfterMs: first.toastAfterMs ?? null,
+    endedBy: first.endedBy ?? null,
+    writeEvents: writeEvents(first).length,
+    stubRequests: first.stubRequests?.length ?? 0,
+    sessionRecordsAdded: first.sessionAdded?.length ?? 0,
+  };
+}
+
+/** The case's verdicts. `valid` means the pbpaste shim ran exactly once (in the final attempt). */
 export function scoreCase(c, obs) {
-  const events = writeEvents(obs);
+  const events = [...writeEvents(obs.first ?? NONE), ...writeEvents(obs)];
   const base = scoreFor(c, obs, events);
   return {
     id: c.id, kind: c.kind, refusal: c.refusal ?? null, width: c.width, anchor: c.anchor ?? null, covers: c.covers ?? [],
     nonAscii: Boolean(c.nonAscii), unicode: c.unicode ?? [], attempts: obs.attempts, pbpasteCalls: obs.pbpasteCalls,
+    retried: obs.attempts > 1, firstAttempt: firstAttemptRecord(obs.first),
     valid: obs.pbpasteCalls === 1, commandRan: obs.pbpasteCalls >= 1,
     channels: events.map((e) => e.channel), writeEvents: events.length, ...base,
   };

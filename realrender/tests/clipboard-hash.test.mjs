@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
-import { MAX_REAL_READS, readLog, summarizeReads, takeHash } from "../lib/clipboard-hash.mjs";
+import { MAX_REAL_READS, readLog, runHashPipe, summarizeReads, takeHash } from "../lib/clipboard-hash.mjs";
 
 // None of these tests reads the real clipboard: `exec` is always a fake.
 const HASH_A = "a".repeat(64);
@@ -64,5 +65,49 @@ describe("the real-clipboard hash reads (the rule allows exactly two)", () => {
       assert.ok(!String(error.message).includes("SECRET"));
     }
     assert.ok(!fs.readFileSync(file, "utf8").includes("SECRET"));
+  });
+});
+
+describe("takeHash: the terminal profile rides on every logged event", () => {
+  test("a profile is written on the attempt and on the hash, and nothing else changes", () => {
+    const file = path.join(dir(), "log.jsonl");
+    const hash = takeHash({ file, label: "before", exec: () => `${"a".repeat(64)}  -\n`, profile: "warp" });
+    assert.equal(hash, "a".repeat(64));
+    const lines = readLog(file);
+    assert.deepEqual(lines.map((l) => [l.event, l.profile]), [["attempt", "warp"], ["hash", "warp"]]);
+  });
+
+  test("without a profile the log lines are exactly the old ones", () => {
+    const file = path.join(dir(), "log.jsonl");
+    takeHash({ file, label: "before", exec: () => `${"b".repeat(64)}  -\n` });
+    assert.equal(readLog(file).some((l) => "profile" in l), false);
+  });
+});
+
+// The hash is `pbpaste | shasum`. A plain shell pipeline reports the status of its LAST command, so a pbpaste that
+// failed gave the hash of empty input and exit 0, the same value as an empty clipboard. The 0.1.1 live
+// pass took two such hashes and could not tell the two cases apart. With pipefail a failed read is a failure.
+// These tests use stand-in programs; none reads the real clipboard.
+describe("runHashPipe: a failing source is a failure, not the hash of empty input", () => {
+  const EMPTY_INPUT = createHash("sha256").update("").digest("hex");
+
+  test("a source that exits non-zero throws, even though shasum itself succeeds", () => {
+    assert.throws(() => runHashPipe("false"));
+  });
+
+  test("a source that succeeds with no output gives the hash of empty input", () => {
+    assert.ok(runHashPipe("printf ''").startsWith(EMPTY_INPUT));
+  });
+
+  test("a source that prints text gives that text's hash and the text is not in the result", () => {
+    const out = runHashPipe("printf secretwords");
+    assert.match(out, /^[0-9a-f]{64}/);
+    assert.ok(!out.includes("secretwords"));
+    assert.ok(!out.startsWith(EMPTY_INPUT));
+  });
+
+  test("the real read is the same pipe with pbpaste as its source", async () => {
+    const { PBPASTE_SOURCE } = await import("../lib/clipboard-hash.mjs");
+    assert.equal(PBPASTE_SOURCE, "pbpaste");
   });
 });

@@ -2,7 +2,7 @@
 // copy-back offline replay harness.
 //
 // TESTS (from the repo root):
-//   node --test tests/
+//   npm test
 //
 // K1 STOP-LOSS (lossless-match rate must be >= 70%; run three seeds):
 //   node scripts/replay.mjs --seed 1 --messages 250 --widths 60,80,100,120

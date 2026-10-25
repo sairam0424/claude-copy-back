@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { project, projectText, BULLET, OPAQUE } from "../src/core/project.ts";
 
 // What the reader sees (projected), and where each visible character came from
-// (map). Width-independent: rows and wrapping are covered in layout.test.ts.
+// (map). Width-independent: rows and wrapping are covered in layout.test.mts.
 
 const B = BULLET;
 
@@ -39,7 +39,8 @@ const constructs: Array<[string, string, string]> = [
     "- a\n  - b\n    - c\n- d",
     `${B} a\n${B} b\n${B} c\n${B} d`,
   ],
-  ["numbered inside bullet", "- a\n  1. b\n  2. c", `${B} a\n1. b\n2. c`],
+  // an ordered list one list level down is lettered (ordinals.ts; sealed-rig probe, Claude Code 2.1.310)
+  ["numbered inside bullet", "- a\n  1. b\n  2. c", `${B} a\na. b\nb. c`],
   ["bullet inside numbered", "1. a\n   - b\n2. c", `1. a\n${B} b\n2. c`],
   ["loose list", "- a\n\n- b", `${B} a\n\n${B} b`],
   [

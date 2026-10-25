@@ -23,15 +23,27 @@ export function planBlocks(family, rng, featured) {
   return out;
 }
 
-/** One message. `tokenStart` is the first token number it may use. */
+/**
+ * One message. `tokenStart` is the first token number it may use.
+ *
+ * A family may define three optional hooks (family C does; A and B do not):
+ *   streamOf(index)    the index whose random stream and featured class this message uses,
+ *                      so two messages can hold the SAME words (a twin pair);
+ *   variantOf(index)   0 or 1: which markup variant of those words to write (ctx.variant);
+ *   finish(ctx)        called after the planned blocks, to append blocks that depend on what
+ *                      was written (reference-link definitions).
+ */
 export function buildMessage(family, { seed, index, tokenStart }) {
-  const rng = new Rng(mixSeed(seed, index));
+  const stream = family.streamOf ? family.streamOf(index) : index;
+  const rng = new Rng(mixSeed(seed, stream));
   const mint = new Mint(tokenStart, family.tokenWords);
   const doc = new Doc();
   const ctx = makeCtx(rng, doc, mint, family.vocab);
-  const featured = family.classes[index % family.classes.length];
+  ctx.variant = family.variantOf ? family.variantOf(index) : 0;
+  const featured = family.classes[stream % family.classes.length];
   const plan = planBlocks(family, rng, featured);
   for (const kind of plan) family.build[kind](ctx);
+  if (family.finish) family.finish(ctx);
   const built = doc.finish();
   const tokens = locateTokens(built.text, mint, [...mint.meta.keys()]).map((t) => ({
     ...t,

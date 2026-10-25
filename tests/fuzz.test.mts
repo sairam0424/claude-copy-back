@@ -5,6 +5,7 @@ import { project, projectText } from "../src/core/project.ts";
 import { stripDecoration } from "../src/core/strip.ts";
 import { copySpan } from "../src/sim/copy.ts";
 import { mulberry32, pick, randInt } from "../src/sim/prng.ts";
+import { assertCpuWithin, cpuTimed } from "./timing.ts";
 
 // Hostile input: random strings made of markdown-significant tokens. Whatever
 // the structure, nothing may hang or throw, the map must stay in range and
@@ -64,7 +65,7 @@ const TOKENS = [
   "你好",
   "\u{1F600}",
   "\u0000",
-  "​",
+  "\u200b",
   "⏺ ",
   "▎ ",
   "• ",
@@ -182,13 +183,12 @@ describe("fuzz: markdown-significant garbage", () => {
       "```\n".repeat(2000),
       "|a|b|\n|-|-|\n".repeat(1500),
     ];
-    for (const message of messages) {
-      const t0 = performance.now();
-      const result = findSource("this is not in the message at all, no", [
-        message,
-      ]);
+    for (const [i, message] of messages.entries()) {
+      const { value: result, cpuMs } = cpuTimed(() =>
+        findSource("this is not in the message at all, no", [message]),
+      );
       assert.equal(result.ok, false);
-      assert.ok(performance.now() - t0 < 3000, "took too long");
+      assertCpuWithin(`fuzz: pathological message ${i}`, cpuMs, 3000);
     }
   });
 });

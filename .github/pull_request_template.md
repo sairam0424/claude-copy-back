@@ -15,13 +15,14 @@
 
 Tick what applies to the files you touched, and paste nothing but the pass or fail line.
 
-- [ ] `node --test --test-concurrency=1 "tests/*.test.ts"`
-- [ ] `node --test --test-concurrency=1 "realrender/tests/*.test.mjs"` (if `realrender/` changed; macOS)
+- [ ] `node --test --test-concurrency=1 "tests/*.test.mts"`
+- [ ] `node --test --test-concurrency=1 "realrender/tests/*.test.mjs"` (if `realrender/` changed; macOS; CI runs it only after a merge to `main`)
 - [ ] `node scripts/check-sources.mjs`
 - [ ] `claude plugin validate . --strict`
 - [ ] `bash scripts/check-footprint.sh`
 - [ ] `bash scripts/kit-test.sh` (with an isolated `HOME`)
 - [ ] `shellcheck scripts/*.sh` (if a script changed)
+- [ ] `actionlint .github/workflows/*.yml` (if a workflow changed)
 - [ ] `CB_TYPECHECK_REQUIRED=1 bash scripts/typecheck.sh` (local only; needs the engine's types file)
 - [ ] A bug fix has a test that fails without it
 

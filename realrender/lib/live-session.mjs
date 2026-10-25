@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EXPECTED_VERSION, SEAL_PATH, forbiddenName } from "./config.mjs";
 import { tmpNames } from "./evidence.mjs";
+import { parseProfile } from "./profile.mjs";
 import { writeLiveFixtures } from "./live-fixtures.mjs";
 import { makeSandbox } from "./sandbox.mjs";
 import { SANDBOX_EXEC } from "./seatbelt.mjs";
@@ -37,11 +38,11 @@ async function waitForPid(pidFile, timeoutMs) {
 }
 
 /**
- * Start everything. `opts`: {width, height, turns, sentinel, claude?, repo?, parts?}.
+ * Start everything. `opts`: {width, height, turns, sentinel, claude?, repo?, parts?, profile?}.
  * On any failure the half-built context is torn down before the error leaves.
  */
 export async function openSession(opts) {
-  const ctx = { opts, tools: { ...preflight(opts.claude), sandboxExec: SANDBOX_EXEC }, startedAt: Date.now() };
+  const ctx = { opts, profile: parseProfile(opts.profile), tools: { ...preflight(opts.claude), sandboxExec: SANDBOX_EXEC }, startedAt: Date.now() };
   try {
     ctx.sandbox = makeSandbox();
     ctx.tmpBefore = tmpNames();
@@ -49,7 +50,7 @@ export async function openSession(opts) {
     ctx.sessionId = randomUUID();
     const fx = writeLiveFixtures({
       sandbox: ctx.sandbox, port: ctx.stub.port, claude: ctx.tools.claude, version: EXPECTED_VERSION,
-      sessionId: ctx.sessionId, turns: opts.turns, repo: opts.repo ?? REPO, parts: opts.parts,
+      sessionId: ctx.sessionId, turns: opts.turns, repo: opts.repo ?? REPO, parts: opts.parts, profile: ctx.profile,
     });
     Object.assign(ctx, fx);
     const bad = forbiddenName(fx.env);

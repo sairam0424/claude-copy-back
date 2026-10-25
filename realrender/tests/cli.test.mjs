@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseArgs, toOptions } from "../rig.mjs";
+import { launchExtraEnv } from "../lib/run.mjs";
 
 describe("rig command line", () => {
   test("defaults", () => {
@@ -22,6 +23,18 @@ describe("rig command line", () => {
     assert.deepEqual(o.resize, [60, 80]);
     assert.deepEqual(o.drop, ["theme", "trust"]);
     assert.deepEqual(o.extraEnv, [["A", "1"], ["B", "x=y"]]);
+  });
+
+  test("--profile defaults to default, accepts warp and rejects anything else", () => {
+    assert.equal(toOptions(parseArgs([])).profile, "default");
+    assert.equal(toOptions(parseArgs(["--profile", "warp"])).profile, "warp");
+    assert.throws(() => toOptions(parseArgs(["--profile", "kitty"])), /unknown profile "kitty"/);
+  });
+
+  test("the profile's variables are added after any --env, through the same slot", () => {
+    const o = toOptions(parseArgs(["--profile", "warp", "--env", "A=1"]));
+    assert.deepEqual(launchExtraEnv(o).map(([k]) => k), ["A", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM"]);
+    assert.deepEqual(launchExtraEnv(toOptions(parseArgs(["--env", "A=1"]))), [["A", "1"]]);
   });
 
   test("bad input is rejected with a message", () => {

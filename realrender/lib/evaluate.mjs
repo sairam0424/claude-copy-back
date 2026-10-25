@@ -28,5 +28,10 @@ export function evaluate(cap, copied, texts, twinText, find = findSource) {
   };
 }
 
+/** The matcher's answer for a copy against the whole window (messages in session order, newest last). */
+export function lookup(copied, texts, find = findSource) {
+  return find(copied, newestFirst(texts));
+}
+
 /** A copy that holds a full digit run of a token (so a twin, with other digits, cannot hold it). */
 export const hasTokenDigits = (copied) => /\d{4}/.test(copied);
