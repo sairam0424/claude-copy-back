@@ -1,0 +1,69 @@
+name: Feature request
+description: "An idea for /cc: a kind of copy it should handle, a clearer message, a better refusal"
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste the text you copied, your clipboard, or any part of a Claude reply into this issue.** That includes screenshots, logs and "just a short example". Describe the shape of the text instead (a wrapped paragraph, a list across a line break, a code block).
+
+        copy-back is experimental, macOS only and maintained by one person. It only ever writes text that Claude wrote in the current session, it uses five engine calls (listed in the README under Data handling), and it never sends anything anywhere. A request that needs a new engine call, a network, a file, a timer or stored state is a security change and is unlikely to be accepted. Tables, diffs and tool output are known gaps, not oversights: see Limits in the README.
+
+        Found a security problem? Do not file it here: see the security policy linked on the issue chooser.
+
+  - type: checkboxes
+    id: no-private-text
+    attributes:
+      label: Privacy check
+      options:
+        - label: This request contains no copied text, clipboard contents, message text, transcript lines, file paths from my machine or secrets.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do that /cc does not do today?
+      description: The situation, in your own words. Describe the kind of reply and the kind of copy, not their content.
+      placeholder: "I copy a numbered list that has a code block inside one item, and /cc says no match."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like it to do instead?
+      description: The behaviour you expect, including what the toast should say if it still has to refuse. Toasts hold counts and fixed words only.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do today instead?
+      description: A workaround, another tool, or "nothing".
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Where does it touch the project?
+      description: A rough guide for triage.
+      options:
+        - The matcher (what /cc can find)
+        - The toast or a refusal message
+        - Documentation
+        - Installing or updating
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal app and Claude Code version
+      description: The terminal you copy from (Terminal.app, iTerm2, Warp, ...) and the output of `claude --version`, if it matters for the request.
+      placeholder: "Warp, 2.1.310"
+    validations:
+      required: false
