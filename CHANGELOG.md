@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `CODE_OF_CONDUCT.md`, the Contributor Covenant 2.1 with its attribution section. Conduct reports go to the owner privately, by the same routes as security reports; `CONTRIBUTING.md` links it.
+
 ## [0.1.1] - 2026-10-25
 
 The matcher now models how Claude Code draws links and struck text in the terminals that draw them label-only (Warp, and by a static read many others) as well as in the default drawing, the toast is shorter, the tests no longer depend on the clock, and CI is leaner and watches new Claude Code versions. Still experimental and macOS only. Checked by unit tests, engine tests, the sealed capture rig and a counted sealed live pass of `/cc` itself on Claude Code 2.1.310 (reported; see Known limitations for what it does not show).

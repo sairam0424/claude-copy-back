@@ -1,6 +1,6 @@
 # Contributing to copy-back
 
-Thanks for looking. copy-back is an experimental, one-maintainer project, so small, focused changes with tests are the easiest to review. Security problems do not go in an issue or a pull request: read [SECURITY.md](SECURITY.md).
+Thanks for looking. copy-back is an experimental, one-maintainer project, so small, focused changes with tests are the easiest to review. Security problems do not go in an issue or a pull request: read [SECURITY.md](SECURITY.md). Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## What fits
 
