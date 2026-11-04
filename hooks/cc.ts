@@ -11,6 +11,12 @@
 // PRIVACY: the clipboard text, the message text and every error a dependency
 // raises stay inside this file's functions. A raised error is caught where it
 // happens and becomes a reason word; its message is never read.
+//
+// OVERLAP: /cc is `immediate`, so a second run can start while the first still
+// waits for the clipboard or the session. Each run takes the next number as it
+// starts and, after each of those waits, ends with "superseded" if a newer run
+// exists: only the newest run can write the clipboard. An overtaken run shows
+// no line, so a late one cannot cover the line of the run that did the work.
 
 import { findSource, resetMatchCache } from "../src/core/match.ts";
 import type { FindResult } from "../src/core/match.ts";
@@ -44,6 +50,21 @@ export interface CcDeps {
   forget?(): void;
   /** The matcher; the real one unless a test swaps it. */
   find?: FindFn;
+}
+
+/**
+ * The number of the newest run: a count and nothing else, never text (see
+ * PRIVACY above). It is the one piece of state this mod keeps, and it has to be
+ * shared: every run is handed its own dependencies, so two overlapping runs can
+ * only meet in the module.
+ */
+let newestRun = 0;
+
+/** Take the next run number; the returned test says whether a newer run has started since. */
+function startRun(): () => boolean {
+  newestRun += 1;
+  const mine = newestRun;
+  return () => newestRun !== mine;
 }
 
 function refuse(reason: Refusal, searched = 0): Decision {
@@ -103,16 +124,23 @@ async function writeSlice(
   }
 }
 
-async function decide(deps: CcDeps): Promise<Decision> {
+async function decide(
+  deps: CcDeps,
+  isOvertaken: () => boolean,
+): Promise<Decision> {
   let clip: ClipRead;
   try {
     clip = classifyClip(await deps.readClipboard());
   } catch {
-    return refuse("unreadable");
+    clip = { ok: false, reason: "unreadable" };
   }
+  // Before anything else: an overtaken run's own errors are not worth a line.
+  if (isOvertaken()) return refuse("superseded");
   if (!clip.ok) return refuse(clip.reason);
 
   const session = await readReplies(deps);
+  // The last wait before the copy: nothing below yields until deps.copy is called.
+  if (isOvertaken()) return refuse("superseded");
   if (!session.ok) return refuse("session-unreadable");
   const { replies } = session;
 
@@ -137,12 +165,16 @@ async function announce(deps: CcDeps, decision: Decision): Promise<CcOutcome> {
  * that calls it can always answer `{}`.
  */
 export async function runCc(deps: CcDeps): Promise<CcOutcome> {
+  const isOvertaken = startRun();
   try {
     let decision: Decision;
     try {
-      decision = await decide(deps);
+      decision = await decide(deps, isOvertaken);
     } catch {
       decision = refuse("failed");
+    }
+    if (!decision.copied && decision.reason === "superseded") {
+      return { ...decision, toasted: false };
     }
     return await announce(deps, decision);
   } finally {
