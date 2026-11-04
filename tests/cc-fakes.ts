@@ -6,6 +6,38 @@ import type { CcDeps, CopyAnswer, RunAnswer } from "../hooks/cc.ts";
 import { row } from "./cc-fixtures.ts";
 import type { Row } from "./cc-fixtures.ts";
 
+/**
+ * A dependency call that waits until the test lets it go, to hold one /cc run
+ * at an await while another run starts and finishes.
+ */
+export interface Hold {
+  /** Resolves once the held call has been made and is waiting. */
+  arrived: Promise<void>;
+  /** Let the held call carry on. */
+  release: () => void;
+  /** Called by the fake dependency: signals `arrived`, then waits for `release`. */
+  enter: () => Promise<void>;
+}
+
+export function hold(): Hold {
+  let release = () => {};
+  let signal = () => {};
+  const open = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const arrived = new Promise<void>((resolve) => {
+    signal = resolve;
+  });
+  return {
+    arrived,
+    release,
+    enter: () => {
+      signal();
+      return open;
+    },
+  };
+}
+
 export interface FakeOptions {
   /** What pbpaste printed; the default is a clean run with this text. */
   stdout?: string;
@@ -24,6 +56,10 @@ export interface FakeOptions {
   /** The toast returns a promise that rejects with this. */
   toastReject?: Error;
   find?: CcDeps["find"];
+  /** The clipboard read, the session read or the copy waits here until released. */
+  holdClipboard?: Hold;
+  holdMessages?: Hold;
+  holdCopy?: Hold;
 }
 
 export interface Fakes {
@@ -54,6 +90,7 @@ export function fakes(opts: FakeOptions = {}): Fakes {
   const deps: CcDeps = {
     readClipboard: async () => {
       log.push("read");
+      if (opts.holdClipboard) await opts.holdClipboard.enter();
       if (opts.runError) throw opts.runError;
       return (
         Object.hasOwn(opts, "run") ? opts.run : cleanRun(opts.stdout ?? "")
@@ -61,6 +98,7 @@ export function fakes(opts: FakeOptions = {}): Fakes {
     },
     getMessages: async () => {
       log.push("messages");
+      if (opts.holdMessages) await opts.holdMessages.enter();
       if (opts.messagesError) throw opts.messagesError;
       return (
         Object.hasOwn(opts, "messages") ? opts.messages : rows
@@ -69,6 +107,7 @@ export function fakes(opts: FakeOptions = {}): Fakes {
     copy: async (text) => {
       log.push("copy");
       copies.push(text);
+      if (opts.holdCopy) await opts.holdCopy.enter();
       if (opts.copyError) throw opts.copyError;
       return (
         Object.hasOwn(opts, "copy") ? opts.copy : { isCopied: true }

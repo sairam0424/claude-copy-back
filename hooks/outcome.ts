@@ -28,6 +28,8 @@ export const REFUSALS = [
   "copy-refused",
   "copy-failed",
   "failed",
+  /** A newer /cc started while this run waited; this one stops and shows no line. */
+  "superseded",
 ] as const;
 export type Refusal = (typeof REFUSALS)[number];
 
@@ -83,6 +85,9 @@ const FIXED_LINES: Record<
   ambiguous: `matches more than one place${UNCHANGED}`,
   "copy-failed": "clipboard write failed",
   failed: `unexpected error${UNCHANGED}`,
+  // Never shown by a run (hooks/cc.ts toasts nothing for it); kept so that
+  // toastText answers every Decision.
+  superseded: `replaced by a newer /cc${UNCHANGED}`,
 };
 
 /**

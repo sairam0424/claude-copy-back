@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runCc } from "../hooks/cc.ts";
 import { MAX_CLIPBOARD_CHARS, MAX_REPLIES } from "../hooks/outcome.ts";
-import { cleanRun, fakes } from "./cc-fakes.ts";
+import { cleanRun, fakes, hold } from "./cc-fakes.ts";
 import {
   COPY_CODE,
   COPY_PROSE,
@@ -346,4 +346,30 @@ test("runs do not leak into each other", async () => {
   await runCc(second.deps);
   assert.deepEqual(first.copies, [PASTE_PROSE]);
   assert.deepEqual(second.copies, [PASTE_CODE]);
+});
+
+test("a run overtaken by a newer one copies nothing and says nothing", async () => {
+  // /cc is immediate, so a second run can start while the first still waits
+  // for the session. When the first wakes it must not write over the second.
+  const wait = hold();
+  const older = fakes({
+    stdout: COPY_PROSE,
+    rows: conversation,
+    holdMessages: wait,
+  });
+  const newer = fakes({ stdout: COPY_CODE, rows: conversation });
+  const olderRun = runCc(older.deps);
+  await wait.arrived;
+  const newest = await runCc(newer.deps);
+  wait.release();
+  const overtaken = await olderRun;
+
+  assert.deepEqual(older.copies, [], "the older run wrote over the newer one");
+  assert.deepEqual(newer.copies, [PASTE_CODE]);
+  assert.equal(newest.copied, true);
+  assert.equal(!overtaken.copied && overtaken.reason, "superseded");
+  assert.equal(overtaken.toasted, false);
+  assert.deepEqual(older.toasts, [], "a late line would cover the newer one");
+  assert.equal(newer.toasts.length, 1);
+  assert.deepEqual(older.log, ["read", "messages", "forget"]);
 });

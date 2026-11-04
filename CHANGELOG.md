@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SECURITY.md` names private vulnerability reporting as the first route now that it is switched on; the README no longer carries the install note for a private repository; the release steps in `docs/DEVELOPMENT.md` describe the protected `main` (pull request, squash merge, tag, then push the tag).
 
 ### Fixed
+- A `/cc` that started while an earlier one was still waiting for the session could be overwritten by the earlier one: the earlier run, waking last, wrote its text over the newer run's. Each run now takes a number as it starts and, after each wait and before the copy, ends with a new refusal word, `superseded`, if a newer run exists. An overtaken run copies nothing and shows no line, so only the newest run writes and speaks (the newest wins even when it only refuses). The number is a count and holds no text. Checked by unit tests with the engine calls injected; not yet by a live pass of `/cc` itself.
 - Three CodeQL findings in the test rig, none in the shipped plugin: the rig derives its synthetic session ids with SHA-256 instead of SHA-1 (an identifier, not a secret, but the scanner flags the algorithm), and one test regex no longer repeats ranges that `\w` already covers.
 
 ## [0.1.1] - 2026-10-25
