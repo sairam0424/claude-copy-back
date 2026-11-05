@@ -20,7 +20,7 @@ npm run test:rig                 # rig unit tests (macOS)
 `claude plugin test .` at the root runs the 87 kit tests: `node:test` files are `*.test.mts` (`tests/kit-layout.test.mts` guards it). Node 22.19+, engine 2.1.299+. Timing tests assert CPU time (`tests/timing.ts`); `CB_TEST_TIME_FACTOR=3` relaxes them. CI: Linux and macOS on every pull request; `ci-ok` is the one check to require; `engine-drift.yml` weekly; CodeQL and Scorecard are not required.
 
 ## Rules
-- Engine: `$` goes only into top-level function declarations. An engine call spelled outside `api.ts` and `register.tsx`, comments included, fails the footprint gate. The hook never reads `next`. No timers, state, store, files or network.
+- Engine: `$` goes only into top-level function declarations. An engine call spelled outside `api.ts` and `register.tsx`, comments included, fails the footprint gate. The hook never reads `next`. No timers, store, files or network, and no state beyond one run counter (`newestRun` in `hooks/cc.ts`): a number, never text, so a newer run can supersede an older one.
 - Style: erasable-only TypeScript, `.ts` in relative imports, zero dependencies, files under 400 lines, functions under 50, no mutation of inputs.
 - Privacy: clipboard and message text never reach a toast, log, store, state, returned text, thrown error or file: counts and fixed words only. Never read the real clipboard in a test; never commit a real transcript, copy or screen capture. The source guard is a tripwire, not a sandbox (`SECURITY.md`). No input may exhaust memory or run for tens of seconds.
 
